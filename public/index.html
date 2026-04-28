@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="SecureAuth — Login to your account with enterprise-grade security">
+  <title>Login — SecureAuth</title>
+  <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+  <div class="auth-wrapper">
+    <div class="auth-card">
+      <div class="auth-logo">
+        <h1>SecureAuth</h1>
+      </div>
+      <p class="auth-subtitle">Welcome back. Sign in to continue.</p>
+
+      <div id="alert" class="alert"></div>
+
+      <!-- Login Form -->
+      <form id="loginForm" autocomplete="on">
+        <div class="form-group">
+          <label for="email">Email Address</label>
+          <div class="input-wrapper">
+            <input type="email" id="email" name="email" class="form-input" placeholder="you@example.com" required autocomplete="email" tabindex="1">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="password">Password</label>
+          <div class="input-wrapper">
+            <input type="password" id="password" name="password" class="form-input" placeholder="Enter your password" required autocomplete="current-password" tabindex="2">
+            <button type="button" class="pw-toggle" tabindex="4" aria-label="Toggle password visibility">Show</button>
+          </div>
+        </div>
+
+        <div class="remember-row remember-row-end">
+          <a href="/forgot-password.html" class="forgot-link forgot-link-no-margin">Forgot password?</a>
+        </div>
+
+        <button type="submit" id="loginBtn" class="btn btn-primary" tabindex="5">
+          <span class="btn-text">Sign In</span>
+          <span class="spinner"></span>
+        </button>
+      </form>
+
+      <!-- Verification link (Dev mode) -->
+      <div id="mfaSection" class="hidden">
+        <p class="auth-subtitle auth-subtitle-top">Enter your 6-digit MFA code</p>
+        <div class="mfa-input-group" id="mfaInputs">
+          <input type="text" maxlength="1" inputmode="numeric" pattern="[0-9]" tabindex="10">
+          <input type="text" maxlength="1" inputmode="numeric" pattern="[0-9]" tabindex="11">
+          <input type="text" maxlength="1" inputmode="numeric" pattern="[0-9]" tabindex="12">
+          <input type="text" maxlength="1" inputmode="numeric" pattern="[0-9]" tabindex="13">
+          <input type="text" maxlength="1" inputmode="numeric" pattern="[0-9]" tabindex="14">
+          <input type="text" maxlength="1" inputmode="numeric" pattern="[0-9]" tabindex="15">
+        </div>
+        <button type="button" id="verifyMfaBtn" class="btn btn-primary" tabindex="16">
+          <span class="btn-text">Verify Code</span>
+          <span class="spinner"></span>
+        </button>
+        <p class="helper-text helper-text-small">
+          Lost device? Use a <a href="#" id="useBackupLink" class="backup-link">backup code</a>
+        </p>
+      </div>
+
+      <div class="auth-footer">
+        Don't have an account? <a href="/register.html">Create one</a>
+      </div>
+    </div>
+    <div class="dev-credit">Developed by MasterT</div>
+  </div>
+
+  <script src="/js/common.js"></script>
+  <script src="/js/login.js"></script>
+</body>
+</html>

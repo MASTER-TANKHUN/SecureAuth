@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Setup MFA — SecureAuth</title>
+  <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+  <div class="auth-wrapper">
+    <div class="auth-card">
+      <div class="auth-logo">
+        <h1>Setup MFA</h1>
+      </div>
+      <p class="auth-subtitle">Scan this QR code with your authenticator app (Google Authenticator, Authy, etc.)</p>
+
+      <div id="alert" class="alert"></div>
+      <div class="qr-container"><img id="qrCode" alt="MFA QR Code" width="200" height="200"></div>
+
+      <p class="helper-text">Enter the 6-digit code to verify:</p>
+      <div class="mfa-input-group" id="mfaInputs">
+        <input type="text" maxlength="1" inputmode="numeric"><input type="text" maxlength="1" inputmode="numeric"><input type="text" maxlength="1" inputmode="numeric"><input type="text" maxlength="1" inputmode="numeric"><input type="text" maxlength="1" inputmode="numeric"><input type="text" maxlength="1" inputmode="numeric">
+      </div>
+
+      <button id="enableMfaBtn" class="btn btn-primary">
+        <span class="btn-text">Enable MFA</span>
+        <span class="spinner"></span>
+      </button>
+
+      <div id="backupSection" class="backup-section hidden">
+        <p class="helper-text helper-text-warning">Save these backup codes in a safe place:</p>
+        <div class="backup-codes" id="backupCodes"></div>
+      </div>
+
+      <div class="auth-footer"><a href="/dashboard.html">← Back to Dashboard</a></div>
+    </div>
+    <div class="dev-credit">Developed by MasterT</div>
+  </div>
+  <script src="/js/common.js"></script>
+  <script src="/js/mfa.js"></script>
+</body>
+</html>

@@ -1,0 +1,27 @@
+{
+  "name": "secure-auth-system",
+  "version": "1.0.0",
+  "description": "Production-grade Login/Register system with MFA, Argon2 hashing, JWT, and rate limiting",
+  "main": "server/server.js",
+  "scripts": {
+    "start": "node server/server.js",
+    "dev": "node --watch server/server.js",
+    "test:smoke": "node tests/smoke.js"
+  },
+  "dependencies": {
+    "argon2": "^0.41.1",
+    "better-sqlite3": "^11.7.0",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "csrf-csrf": "^4.0.3",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "express-rate-limit": "^7.5.0",
+    "helmet": "^8.0.0",
+    "jsonwebtoken": "^9.0.2",
+    "nodemailer": "^8.0.7",
+    "otplib": "^12.0.1",
+    "qrcode": "^1.5.4",
+    "uuid": "^14.0.0"
+  }
+}

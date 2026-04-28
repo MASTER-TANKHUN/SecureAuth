@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="SecureAuth — Create your account">
+  <title>Register — SecureAuth</title>
+  <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+  <div class="auth-wrapper">
+    <div class="auth-card">
+      <div class="auth-logo">
+        <h1>SecureAuth</h1>
+      </div>
+      <p class="auth-subtitle">Create your secure account</p>
+
+      <div id="alert" class="alert"></div>
+
+      <form id="registerForm" autocomplete="on">
+        <div class="form-group">
+          <label for="username">Username</label>
+          <div class="input-wrapper">
+            <input type="text" id="username" name="username" class="form-input" placeholder="johndoe" required autocomplete="username" tabindex="1">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="email">Email Address</label>
+          <div class="input-wrapper">
+            <input type="email" id="email" name="email" class="form-input" placeholder="you@example.com" required autocomplete="email" tabindex="2">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="password">Password</label>
+          <div class="input-wrapper">
+            <input type="password" id="password" name="password" class="form-input" placeholder="Create a strong password" required autocomplete="new-password" tabindex="3">
+            <button type="button" class="pw-toggle" tabindex="6" aria-label="Toggle password visibility">Show</button>
+          </div>
+          <div class="pw-strength"><div class="bar"></div><div class="bar"></div><div class="bar"></div><div class="bar"></div></div>
+          <div class="pw-strength-text"></div>
+        </div>
+
+        <div class="form-group">
+          <label for="confirmPassword">Confirm Password</label>
+          <div class="input-wrapper">
+            <input type="password" id="confirmPassword" name="confirmPassword" class="form-input" placeholder="Confirm your password" required autocomplete="new-password" tabindex="4">
+            <button type="button" class="pw-toggle" tabindex="7" aria-label="Toggle password visibility">Show</button>
+          </div>
+        </div>
+
+        <button type="submit" id="registerBtn" class="btn btn-primary" tabindex="5">
+          <span class="btn-text">Create Account</span>
+          <span class="spinner"></span>
+        </button>
+      </form>
+
+      <div class="auth-footer">
+        Already have an account? <a href="/index.html">Sign In</a>
+      </div>
+    </div>
+    <div class="dev-credit">Developed by MasterT</div>
+  </div>
+
+  <script src="/js/common.js"></script>
+  <script src="/js/register.js"></script>
+</body>
+</html>

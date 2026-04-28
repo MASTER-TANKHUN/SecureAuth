@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Confirm MFA Change — SecureAuth</title>
+  <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+  <div class="auth-wrapper">
+    <div class="auth-card auth-card-center">
+      <div class="verify-icon" id="statusIcon"></div>
+      <h2 id="statusTitle" class="status-title">Confirming MFA change...</h2>
+      <p id="statusMessage" class="auth-subtitle status-message">Please wait while we process your request.</p>
+      <div id="alert" class="alert"></div>
+      <a href="/dashboard.html" class="btn btn-primary btn-inline-center" id="actionBtn">
+        <span class="btn-text">Back to Dashboard</span>
+      </a>
+    </div>
+    <div class="dev-credit">Developed by MasterT</div>
+  </div>
+  <script src="/js/common.js"></script>
+  <script src="/js/mfa-disable.js"></script>
+</body>
+</html>

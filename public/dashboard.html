@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard — SecureAuth</title>
+  <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+  <div class="dashboard-wrapper">
+    <div class="dashboard-card">
+      <div class="dashboard-header">
+        <div class="user-info">
+          <h2 id="welcomeText">Welcome back!</h2>
+          <p id="userEmail">Loading...</p>
+        </div>
+        <button class="btn-logout" id="logoutBtn">Sign Out</button>
+      </div>
+
+      <div id="alert" class="alert"></div>
+
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-value" id="mfaStatus">—</div>
+          <div class="stat-label">MFA Status</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="emailStatus">—</div>
+          <div class="stat-label">Email Verified</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="loginCount">—</div>
+          <div class="stat-label">Recent Logins</div>
+        </div>
+      </div>
+
+      <div class="dashboard-section-header">
+        <h3 class="dashboard-section-title">Login History</h3>
+        <a href="/mfa-setup.html" id="setupMfaLink" class="btn-social dashboard-action-link">Setup MFA</a>
+      </div>
+
+      <div class="table-scroll">
+        <table class="log-table">
+          <thead><tr><th>Status</th><th>IP Address</th><th>Device</th><th>Time</th></tr></thead>
+          <tbody id="logTableBody">
+            <tr><td colspan="4" class="table-empty-cell">Loading...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="dev-credit">Developed by MasterT</div>
+  </div>
+  <script src="/js/common.js"></script>
+  <script src="/js/dashboard.js"></script>
+</body>
+</html>
