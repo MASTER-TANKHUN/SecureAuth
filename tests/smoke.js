@@ -290,7 +290,10 @@ async function run() {
     });
     assert.equal(postResetLoginResult.status, 200, 'Login with updated password should succeed');
 
-    const mfaSetup = await postResetLogin.request('/api/auth/mfa/setup', { method: 'POST' });
+    const mfaSetup = await postResetLogin.request('/api/auth/mfa/setup', {
+      method: 'POST',
+      body: { password: updatedPassword }
+    });
     assert.equal(mfaSetup.status, 200, 'MFA setup should succeed');
     assert.equal(Array.isArray(mfaSetup.data.backupCodes), true, 'Expected backup codes array');
     assert.equal(mfaSetup.data.backupCodes.length, 8, 'Expected eight backup codes');

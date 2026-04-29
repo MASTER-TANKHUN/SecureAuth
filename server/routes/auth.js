@@ -231,6 +231,9 @@ router.post('/register', registerLimiter, validateRegistration, async (req, res)
     if (existingEmail || existingUsername) {
       logSecurityEvent('registration_attempt_duplicate', { email, username, ipAddress });
       
+      // Pad timing to match successful registration
+      await hashToken('dummy-token-for-timing-balance');
+
       // Return generic success message to prevent enumeration
       return res.status(201).json({
         success: true,
@@ -602,6 +605,8 @@ router.post('/login', loginLimiter, emailLimiter, validateLogin, async (req, res
       }
 
       if (totpResult.status !== 'VALID' && !usedBackupCode) {
+        statements.incrementFailedAttempts.run({ id: user.id });
+
         statements.createLoginLog.run({
           userId: user.id,
           ipAddress,
@@ -611,6 +616,25 @@ router.post('/login', loginLimiter, emailLimiter, validateLogin, async (req, res
         });
 
         logSecurityEvent('login_failed', { userId: user.id, email, ipAddress, reason: 'invalid_mfa' });
+
+        const updatedUser = statements.findUserById.get({ id: user.id });
+        if (updatedUser.failed_login_attempts >= 5) {
+          const lockUntil = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+          statements.lockAccount.run({ id: user.id, lockedUntil: lockUntil });
+
+          try {
+            await sendLockoutAlertEmail(user.email, ipAddress);
+          } catch (emailErr) {
+            console.error('Failed to send login lockout alert email:', emailErr.message);
+          }
+
+          logSecurityEvent('account_locked_login', { userId: user.id, email, ipAddress });
+
+          return res.status(423).json({
+            success: false,
+            message: 'Account is temporarily locked due to too many failed attempts. Try again in 30 minutes.',
+          });
+        }
 
         return res.status(401).json({
           success: false,
@@ -1208,6 +1232,9 @@ router.post('/forgot-password', forgotPasswordLimiter, emailLimiter, async (req,
       } catch (emailErr) {
         console.error('Failed to send password reset email:', emailErr.message);
       }
+    } else {
+      // Simulate token generation timing to prevent enumeration
+      await hashToken('dummy-token-for-timing-balance');
     }
 
     res.json({
@@ -1452,9 +1479,7 @@ router.post('/change-email', authenticate, sensitiveActionLimiter, async (req, r
     }
 
     const emailInUse = statements.findUserByEmail.get({ email: normalizedEmail });
-    if (emailInUse && emailInUse.id !== user.id) {
-      return res.status(409).json({ success: false, message: 'That email is already in use.' });
-    }
+    const isConflict = emailInUse && emailInUse.id !== user.id;
 
     if (!await argon2.verify(user.password_hash, password)) {
       const locked = await registerSensitiveActionFailure(
@@ -1470,6 +1495,14 @@ router.post('/change-email', authenticate, sensitiveActionLimiter, async (req, r
         });
       }
       return res.status(401).json({ success: false, message: 'Incorrect password.' });
+    }
+
+    if (isConflict) {
+      await hashToken('dummy-token-for-timing-balance');
+      return res.json({
+        success: true,
+        message: 'A verification link has been sent to your new email address. Please click it to confirm.',
+      });
     }
 
     const verifyTokenStr = generateVerificationToken();

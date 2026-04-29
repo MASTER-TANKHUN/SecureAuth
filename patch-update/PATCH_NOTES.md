@@ -97,3 +97,52 @@ This patch addresses **8 security findings** identified during an independent co
 | CSP `imgSrc: https:` | Requires XSS to exploit, which CSP blocks |
 | Dummy hash hardcoded | Added comment about keeping it in sync with Argon2 config |
 | `verification_tokens` redundant hash | SHA-256 digest used as fast DB lookup index; Argon2 hash used for verification — functional design |
+
+---
+
+## Post-Audit Remediation II (April 29, 2026 - Claude 4.7 Audit)
+
+### 🔴 HIGH Priority Fixes
+
+#### 1. Smoke Test Broken by MFA Password Requirement [BUG-1]
+- **File:** `tests/smoke.js`
+- **Finding:** Patch #7 added a password requirement to `/mfa/setup`, but the automated smoke test wasn't updated to send it, causing the test suite to fail out-of-the-box.
+- **Fix:** Added the `password` payload to the `/api/auth/mfa/setup` request in the test script. The test now passes successfully.
+
+### 🟠 MEDIUM Priority Fixes
+
+#### 2. MFA Failure Not Incrementing Lockout Counter [VULN-1]
+- **File:** `server/routes/auth.js` (Login handler)
+- **Finding:** While a wrong password triggered the database account lockout after 5 attempts, a correct password followed by a wrong MFA code did not increment the `failed_login_attempts` counter. This allowed attackers to brute-force TOTP indefinitely without persistent account lockout.
+- **Fix:** Added `incrementFailedAttempts` and the 5-strike lockout logic to the MFA failure path.
+
+#### 3. Email Enumeration via `/change-email` [VULN-2]
+- **File:** `server/routes/auth.js` (Change email handler)
+- **Finding:** The endpoint returned `409 Conflict` immediately if the requested new email was already in use. This allowed authenticated users to probe and enumerate registered emails.
+- **Fix:** Refactored the endpoint to always check the password first. If the email is in use, the system pads the timing with a dummy hash and returns a generic success message ("A verification link has been sent..."), preventing enumeration without sending confusing emails to other users.
+
+#### 4. Timing-Based Email Enumeration in `/forgot-password` and `/register` [VULN-3 & VULN-4]
+- **File:** `server/routes/auth.js`
+- **Finding:** Both endpoints exited early when an email didn't exist or was a duplicate. The non-early path executed `hashToken()` (Argon2), creating a 100-300ms timing gap that attackers could measure to enumerate registered emails.
+- **Fix:** Added `await hashToken('dummy-token-for-timing-balance')` to the early exit paths. This balances the execution time, closing the timing side-channel.
+
+### 🟡 LOW Priority Fixes
+
+#### 5. Key Reuse for HMAC Backup Codes [VULN-5]
+- **File:** `server/utils/crypto.js`
+- **Finding:** The primary `ENCRYPTION_KEY` was used directly as the HMAC key for backup codes, violating the Key Separation Principle (NIST SP 800-108).
+- **Fix:** Implemented `crypto.hkdfSync` to derive a distinct, purpose-specific key (`backup-code-hmac`) from the `ENCRYPTION_KEY` for backup code hashing.
+
+#### 6. CSP `imgSrc: https:` Too Broad [LOW-7]
+- **File:** `server/server.js`
+- **Finding:** Allowing images from any HTTPS source could theoretically facilitate image-based data exfiltration if XSS was achieved.
+- **Fix:** Tightened Content Security Policy to `imgSrc: ["'self'", 'data:']`.
+
+---
+
+### ✅ Items Reviewed But NOT Changed (Claude 4.7)
+
+| Finding | Reason Not Changed |
+|---------|-------------------|
+| `__CSRF-Token` not using `__Host-` prefix [LOW-6] | Requires HTTPS. Imposing this breaks local development (HTTP). `SameSite: strict` is sufficient. |
+| `trust proxy` config accepts only 1 IP [LOW-8] | Advanced load balancer/CDN configurations (multiple CIDRs) are deployment-specific infrastructure details, not application bugs. |

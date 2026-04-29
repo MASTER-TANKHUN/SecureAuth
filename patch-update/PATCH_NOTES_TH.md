@@ -77,3 +77,52 @@
 | Account lockout cross-contamination | ต้อง chain XSS + CSRF + ขโมย token ภายใน 15 นาที — ยากมาก |
 | `trust proxy` config | เป็นเรื่อง operational — บันทึกไว้ใน README |
 | CSP `imgSrc: https:` | ต้องมี XSS ก่อน ซึ่ง CSP บล็อกอยู่แล้ว |
+
+---
+
+## 🛠️ Post-Audit Remediation II (29-04-2026 - Claude 4.7 Audit)
+
+### 🔴 HIGH Priority Fixes
+
+#### 1. Smoke Test พังเพราะเพิ่มระบบยืนยันรหัสผ่าน [BUG-1]
+- **ไฟล์:** `tests/smoke.js`
+- **ปัญหา:** แพตช์ที่ 7 มีการเพิ่มให้ `/mfa/setup` ต้องส่งรหัสผ่าน แต่ลืมอัปเดตไฟล์ Automated Test ทำให้รันเทสต์แล้วไม่ผ่าน
+- **แก้ไข:** เพิ่มฟิลด์ `password` ใน payload ที่ยิงไป `/api/auth/mfa/setup` ตอนนี้เทสต์ผ่าน 100% แล้ว
+
+### 🟠 MEDIUM Priority Fixes
+
+#### 2. ใส่ MFA ผิดไม่ทำให้ Account โดน Lockout [VULN-1]
+- **ไฟล์:** `server/routes/auth.js`
+- **ปัญหา:** การล็อกอินที่รหัสผ่านถูกต้องแต่ MFA ผิด ไม่มีการเรียกใช้ `incrementFailedAttempts` ทำให้แฮกเกอร์สามารถสุ่มเดา MFA ได้เรื่อยๆ โดยบัญชีไม่ถูกล็อค
+- **แก้ไข:** เพิ่มคำสั่งบวกจำนวนครั้งที่ผิด และระบบล็อคบัญชีเมื่อครบ 5 ครั้ง เข้าไปใน Flow ที่เช็ก MFA ผิดด้วย
+
+#### 3. Email Enumeration ในระบบเปลี่ยนอีเมล (`/change-email`) [VULN-2]
+- **ไฟล์:** `server/routes/auth.js`
+- **ปัญหา:** ระบบตอบกลับ `409 Conflict` ทันทีถ้าอีเมลที่ต้องการเปลี่ยนมีคนใช้แล้ว ทำให้ผู้ใช้งานสามารถเดาได้ว่าอีเมลไหนมีอยู่ในระบบบ้าง
+- **แก้ไข:** ปรับลอจิกให้เช็กรหัสผ่านก่อนเสมอ และหากอีเมลซ้ำ จะหน่วงเวลาด้วย Dummy Hash และส่งข้อความ Generic Success ("ระบบได้ส่งลิงก์ไปแล้ว") แทนเพื่อซ่อนข้อมูล
+
+#### 4. Timing-based Email Enumeration ใน `/forgot-password` และ `/register` [VULN-3 & VULN-4]
+- **ไฟล์:** `server/routes/auth.js`
+- **ปัญหา:** เมื่อใส่อีเมลที่ไม่มีในระบบ (หรือมีแล้วในกรณีสมัคร) ระบบจะ Return ทันที ทำให้เร็วกว่าเคสปกติที่ต้องรันการแฮชด้วย Argon2 ประมาณ 100-300ms แฮกเกอร์สามารถใช้จับเวลาเพื่อตรวจสอบว่ามีอีเมลนั้นในระบบหรือไม่
+- **แก้ไข:** เพิ่มคำสั่ง `await hashToken('dummy-token-for-timing-balance')` ลงใน Path ที่มีการ Return เร็ว เพื่อถ่วงเวลาให้เท่ากันในทุกกรณี
+
+### 🟡 LOW Priority Fixes
+
+#### 5. การใช้ Key ซ้ำซ้อน (Key Reuse) [VULN-5]
+- **ไฟล์:** `server/utils/crypto.js`
+- **ปัญหา:** `ENCRYPTION_KEY` ถูกนำมาใช้เป็น Key โดยตรงสำหรับการทำ HMAC-SHA256 ของ Backup Codes ซึ่งผิดหลักการ Key Separation Principle
+- **แก้ไข:** ใช้ `crypto.hkdfSync` ในการ Derive Key ใหม่ชื่อ `backup-code-hmac` ขึ้นมาจาก `ENCRYPTION_KEY` ก่อนนำไปใช้
+
+#### 6. CSP `imgSrc: https:` เปิดกว้างเกินไป [LOW-7]
+- **ไฟล์:** `server/server.js`
+- **ปัญหา:** การอนุญาตดึงรูปภาพจากทุก URL อาจถูกนำไปใช้แอบส่งข้อมูลออกนอกระบบ (Data Exfiltration) ได้ถ้าหากเกิดช่องโหว่ XSS
+- **แก้ไข:** ปรับลดเหลือเฉพาะ `["'self'", 'data:']` เท่านั้น
+
+---
+
+### ✅ สิ่งที่ตรวจแล้วไม่ต้องแก้ (Claude 4.7)
+
+| ประเด็น | เหตุผล |
+|---------|--------|
+| `__CSRF-Token` ไม่ใช้ `__Host-` prefix [LOW-6] | การใช้ `__Host-` บังคับให้ต้องรันบน HTTPS ทำให้โหมด Local Dev พัง (แค่ใช้ `SameSite: strict` ก็เพียงพอแล้ว) |
+| `trust proxy` config ใส่ได้แค่ 1 IP [LOW-8] | เป็นเรื่องการตั้งค่าระดับ Infrastructure ไม่ใช่บั๊กของโค้ด สามารถระบุหลายไอพีที่ `.env` หรือ Load Balancer ได้ |

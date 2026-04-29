@@ -86,8 +86,11 @@ async function verifyToken(token, hash) {
  * looping through all 8 backup codes.
  */
 function hmacBackupCode(code) {
+  const salt = crypto.createHash('sha256').update(config.hkdfSalt).digest();
+  const hmacKey = crypto.hkdfSync('sha256', Buffer.from(config.encryptionKey), salt, 'backup-code-hmac', 32);
+
   return crypto
-    .createHmac('sha256', config.encryptionKey)
+    .createHmac('sha256', hmacKey)
     .update(code.trim().toUpperCase())
     .digest('hex');
 }

@@ -32,6 +32,7 @@ Developed by MasterT.
 - **Login history audit** for authenticated users
 - **HMAC-SHA256** for backup codes (O(1) constant-time verification preventing DoS)
 - **Per-install HKDF salt** for derived encryption keys
+- **Anti-enumeration (Timing attack prevention)** for registration, login, and password reset
 
 ## API Endpoints
 
@@ -148,6 +149,7 @@ tests/                   Automated smoke tests
 - **Login history**: ระบบตรวจสอบประวัติการเข้าใช้งานสำหรับผู้ใช้
 - **HMAC-SHA256 Backup Codes**: จัดเก็บและตรวจสอบรหัสกู้คืนด้วย HMAC เพื่อป้องกันการโจมตีแบบ DoS
 - **Per-install HKDF Salt**: ใช้ Salt ที่ไม่ซ้ำกันในแต่ละการติดตั้งสำหรับการเข้ารหัสข้อมูลลับ
+- **Anti-enumeration (Timing attack prevention)**: ป้องกันแฮกเกอร์ใช้การจับเวลา (Response Time) เพื่อเดาว่าอีเมลมีอยู่ในระบบหรือไม่
 
 ## ตาราง API Endpoints
 
