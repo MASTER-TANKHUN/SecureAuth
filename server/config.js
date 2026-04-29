@@ -45,6 +45,7 @@ module.exports = {
   },
 
   encryptionKey: requireInProduction('ENCRYPTION_KEY', 'ENCRYPTION_KEY'),
+  hkdfSalt: requireInProduction('HKDF_SALT', 'HKDF_SALT'),
   csrfSecret: requireInProduction('CSRF_SECRET', 'CSRF_SECRET'),
   appUrl: process.env.APP_URL || 'http://localhost:3000',
 };

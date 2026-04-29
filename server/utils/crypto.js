@@ -51,8 +51,8 @@ function decrypt(data) {
  * Returns a 32-byte key for AES-256-GCM
  */
 function deriveEncryptionKey(secret) {
-  // M2 Fix: Use a static non-zero salt for HKDF
-  const salt = crypto.createHash('sha256').update('secureauth-encryption-salt').digest();
+  // Per-install salt from environment — each deployment derives a unique key
+  const salt = crypto.createHash('sha256').update(config.hkdfSalt).digest();
   return crypto.hkdfSync('sha256', Buffer.from(secret), salt, 'encryption', 32);
 }
 
@@ -80,4 +80,28 @@ async function verifyToken(token, hash) {
   }
 }
 
-module.exports = { encrypt, decrypt, hashToken, verifyToken, deriveEncryptionKey };
+/**
+ * HMAC-SHA256 a backup code for constant-time storage & lookup.
+ * Unlike Argon2, this is O(1) and avoids DoS amplification when
+ * looping through all 8 backup codes.
+ */
+function hmacBackupCode(code) {
+  return crypto
+    .createHmac('sha256', config.encryptionKey)
+    .update(code.trim().toUpperCase())
+    .digest('hex');
+}
+
+/**
+ * Verify a backup code against its HMAC hash (constant-time comparison)
+ */
+function verifyBackupCode(code, hmacHash) {
+  const computed = hmacBackupCode(code);
+  try {
+    return crypto.timingSafeEqual(Buffer.from(computed, 'hex'), Buffer.from(hmacHash, 'hex'));
+  } catch {
+    return false;
+  }
+}
+
+module.exports = { encrypt, decrypt, hashToken, verifyToken, deriveEncryptionKey, hmacBackupCode, verifyBackupCode };

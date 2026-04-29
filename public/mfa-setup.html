@@ -15,7 +15,20 @@
       <p class="auth-subtitle">Scan this QR code with your authenticator app (Google Authenticator, Authy, etc.)</p>
 
       <div id="alert" class="alert"></div>
-      <div class="qr-container"><img id="qrCode" alt="MFA QR Code" width="200" height="200"></div>
+
+      <div id="passwordSection">
+        <p class="helper-text">Enter your password to begin MFA setup:</p>
+        <div class="form-group">
+          <input type="password" id="setupPassword" class="form-input" placeholder="Enter your password" autocomplete="current-password">
+        </div>
+        <button id="beginSetupBtn" class="btn btn-primary">
+          <span class="btn-text">Begin Setup</span>
+          <span class="spinner"></span>
+        </button>
+      </div>
+
+      <div id="mfaSetupSection" class="hidden">
+        <div class="qr-container"><img id="qrCode" alt="MFA QR Code" width="200" height="200"></div>
 
       <p class="helper-text">Enter the 6-digit code to verify:</p>
       <div class="mfa-input-group" id="mfaInputs">
@@ -26,6 +39,7 @@
         <span class="btn-text">Enable MFA</span>
         <span class="spinner"></span>
       </button>
+      </div>
 
       <div id="backupSection" class="backup-section hidden">
         <p class="helper-text helper-text-warning">Save these backup codes in a safe place:</p>

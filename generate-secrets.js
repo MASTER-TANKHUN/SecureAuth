@@ -7,12 +7,14 @@ console.log('');
 
 const jwtSecret = crypto.randomBytes(32).toString('hex');
 const encryptionKey = crypto.randomBytes(32).toString('hex');
+const hkdfSalt = crypto.randomBytes(32).toString('hex');
 const csrfSecret = crypto.randomBytes(32).toString('hex');
 
 console.log('Copy these values to your .env.production file:');
 console.log('----------------------------------------------');
 console.log(`JWT_SECRET=${jwtSecret}`);
 console.log(`ENCRYPTION_KEY=${encryptionKey}`);
+console.log(`HKDF_SALT=${hkdfSalt}`);
 console.log(`CSRF_SECRET=${csrfSecret}`);
 console.log('----------------------------------------------');
 console.log('');

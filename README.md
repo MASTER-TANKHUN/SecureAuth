@@ -27,8 +27,11 @@ Developed by MasterT.
 - **CSRF protection** for all state-changing requests (POST/PUT/DELETE)
 - **Helmet** security headers (CSP, HSTS, etc.)
 - **Route-specific rate limiting** to prevent brute-force attacks
+- **Account lockout** after 5 failed login attempts (DB-backed)
 - **Password history** checks (prevents reusing last 5 passwords)
 - **Login history audit** for authenticated users
+- **HMAC-SHA256** for backup codes (O(1) constant-time verification preventing DoS)
+- **Per-install HKDF salt** for derived encryption keys
 
 ## API Endpoints
 
@@ -140,8 +143,11 @@ tests/                   Automated smoke tests
 - **CSRF protection**: ป้องกันการโจมตีแบบ CSRF ในทุกคำขอที่มีการเปลี่ยนแปลงข้อมูล
 - **Helmet**: เสริมความปลอดภัยผ่าน HTTP Headers (CSP, HSTS ฯลฯ)
 - **Rate limiting**: จำกัดความถี่ในการเข้าถึงเพื่อป้องกัน Brute-force
+- **Account lockout**: ล็อคบัญชีอัตโนมัติหากเข้าสู่ระบบผิดพลาด 5 ครั้ง (เก็บสถานะในฐานข้อมูล)
 - **Password history**: ป้องกันการใช้รหัสผ่านซ้ำ 5 ครั้งล่าสุด
 - **Login history**: ระบบตรวจสอบประวัติการเข้าใช้งานสำหรับผู้ใช้
+- **HMAC-SHA256 Backup Codes**: จัดเก็บและตรวจสอบรหัสกู้คืนด้วย HMAC เพื่อป้องกันการโจมตีแบบ DoS
+- **Per-install HKDF Salt**: ใช้ Salt ที่ไม่ซ้ำกันในแต่ละการติดตั้งสำหรับการเข้ารหัสข้อมูลลับ
 
 ## ตาราง API Endpoints
 

@@ -114,15 +114,19 @@ app.use(
       preload: true
     },
     referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
-    permissionsPolicy: {
-      features: {
-        camera: ["'none'"],
-        microphone: ["'none'"],
-        geolocation: ["'none'"],
-      }
-    }
+    // NOTE: Helmet v8 does NOT support permissionsPolicy.
+    // We set it manually below.
   })
 );
+
+// Permissions-Policy header (Helmet v8 does not support this natively)
+app.use((req, res, next) => {
+  res.setHeader(
+    'Permissions-Policy',
+    'camera=(), microphone=(), geolocation=(), payment=(), usb=()'
+  );
+  next();
+});
 
 // ============================================
 // Middleware
@@ -157,7 +161,7 @@ const jsonOnly = (req, res, next) => {
 app.use('/api', jsonOnly);
 
 // Body parsers before CSRF so req.body is available for token validation
-app.use(express.json({ limit: '1kb' })); // Limit body size
+app.use(express.json({ limit: '10kb' })); // Limit body size (10kb allows backup codes + normal payloads)
 
 // Apply CSRF to state-changing API routes after body parsing
 app.post('/api/*', csrfProtectionMiddleware);

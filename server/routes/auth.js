@@ -22,7 +22,7 @@ const {
   sendPasswordChangeAlertEmail,
   sendMfaDisableEmail,
 } = require('../utils/email');
-const { encrypt, decrypt, hashToken, verifyToken } = require('../utils/crypto');
+const { encrypt, decrypt, hashToken, verifyToken, hmacBackupCode, verifyBackupCode } = require('../utils/crypto');
 const {
   apiLimiter,
   mfaAttemptLimiter,
@@ -145,7 +145,7 @@ function consumeTotpCode(userId, code) {
   }
 }
 
-async function consumeBackupCode(userId, code) {
+function consumeBackupCode(userId, code) {
   const normalizedCode = typeof code === 'string' ? code.trim().toUpperCase() : '';
   if (!normalizedCode) {
     return false;
@@ -157,15 +157,17 @@ async function consumeBackupCode(userId, code) {
     return false;
   }
 
-  let matchedHash = null;
-  for (const storedHash of backupCodeHashes) {
-    if (await verifyToken(normalizedCode, storedHash)) {
-      matchedHash = storedHash;
-      break;
+  // O(1) HMAC lookup instead of O(n) Argon2 loop — prevents DoS amplification
+  const codeHmac = hmacBackupCode(normalizedCode);
+  const matchedIndex = backupCodeHashes.findIndex(storedHash => {
+    try {
+      return crypto.timingSafeEqual(Buffer.from(codeHmac, 'hex'), Buffer.from(storedHash, 'hex'));
+    } catch {
+      return false;
     }
-  }
+  });
 
-  if (!matchedHash) {
+  if (matchedIndex === -1) {
     return false;
   }
 
@@ -173,13 +175,21 @@ async function consumeBackupCode(userId, code) {
     db.transaction(() => {
       const freshUser = statements.findUserById.get({ id: userId });
       const freshCodes = parseStoredBackupCodes(freshUser?.backup_codes);
-      const stillMatchedIndex = freshCodes.indexOf(matchedHash);
 
-      if (stillMatchedIndex === -1) {
+      // Re-verify inside transaction
+      const freshIndex = freshCodes.findIndex(h => {
+        try {
+          return crypto.timingSafeEqual(Buffer.from(codeHmac, 'hex'), Buffer.from(h, 'hex'));
+        } catch {
+          return false;
+        }
+      });
+
+      if (freshIndex === -1) {
         throw new Error('CODE_ALREADY_USED');
       }
 
-      freshCodes.splice(stillMatchedIndex, 1);
+      freshCodes.splice(freshIndex, 1);
       statements.enableMfa.run({
         id: userId,
         mfaEnabled: Number(freshUser.mfa_enabled ?? 0),
@@ -488,6 +498,9 @@ router.post('/login', loginLimiter, emailLimiter, validateLogin, async (req, res
     const isPasswordValid = await argon2.verify(user.password_hash, password);
 
     if (!isPasswordValid) {
+      // Increment DB-backed failed attempt counter
+      statements.incrementFailedAttempts.run({ id: user.id });
+
       statements.createLoginLog.run({
         userId: user.id,
         ipAddress,
@@ -497,6 +510,26 @@ router.post('/login', loginLimiter, emailLimiter, validateLogin, async (req, res
       });
 
       logSecurityEvent('login_failed', { userId: user.id, email, ipAddress, reason: 'invalid_password' });
+
+      // Check if account should be locked (5 failed attempts)
+      const updatedUser = statements.findUserById.get({ id: user.id });
+      if (updatedUser.failed_login_attempts >= 5) {
+        const lockUntil = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+        statements.lockAccount.run({ id: user.id, lockedUntil: lockUntil });
+
+        try {
+          await sendLockoutAlertEmail(user.email, ipAddress);
+        } catch (emailErr) {
+          console.error('Failed to send login lockout alert email:', emailErr.message);
+        }
+
+        logSecurityEvent('account_locked_login', { userId: user.id, email, ipAddress });
+
+        return res.status(423).json({
+          success: false,
+          message: 'Account is temporarily locked due to too many failed attempts. Try again in 30 minutes.',
+        });
+      }
 
       return res.status(401).json({
         success: false,
@@ -520,6 +553,16 @@ router.post('/login', loginLimiter, emailLimiter, validateLogin, async (req, res
           success: true,
           requiresMfa: true,
           message: 'Verification required.',
+        });
+      }
+
+      // Validate MFA code format: must be 6 digits (TOTP) or 12 hex chars (backup code)
+      const isTotpFormat = /^\d{6}$/.test(mfaCode);
+      const isBackupFormat = /^[A-Fa-f0-9]{12}$/.test(mfaCode);
+      if (!isTotpFormat && !isBackupFormat) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid MFA code format.',
         });
       }
 
@@ -771,7 +814,25 @@ router.post('/logout', apiLimiter, async (req, res) => {
 // ============================================
 router.post('/mfa/setup', mfaAttemptLimiter, authenticate, async (req, res) => {
   try {
+    const { password } = req.body;
+
+    if (!password) {
+      return res.status(400).json({
+        success: false,
+        message: 'Password is required to setup MFA.',
+      });
+    }
+
     const user = statements.findUserById.get({ id: req.user.id });
+
+    // Verify password before allowing MFA setup (defense-in-depth)
+    const isPasswordValid = await argon2.verify(user.password_hash, password);
+    if (!isPasswordValid) {
+      return res.status(401).json({
+        success: false,
+        message: 'Incorrect password.',
+      });
+    }
 
     if (user.mfa_enabled) {
       return res.status(400).json({
@@ -789,8 +850,8 @@ router.post('/mfa/setup', mfaAttemptLimiter, authenticate, async (req, res) => {
 
     // Store encrypted secret temporarily in DB (but mfa_enabled = 0)
     const backupCodes = generateBackupCodes();
-    // Hash each backup code before storing
-    const hashedBackupCodes = await Promise.all(backupCodes.map(c => hashToken(c)));
+    // HMAC each backup code for O(1) verification (prevents DoS amplification vs Argon2)
+    const hashedBackupCodes = backupCodes.map(c => hmacBackupCode(c));
 
     statements.enableMfa.run({
       id: req.user.id,
@@ -864,12 +925,26 @@ router.post('/mfa/verify', authenticate, mfaAttemptLimiter, async (req, res) => 
       });
     }
 
-    statements.enableMfa.run({
-      id: req.user.id,
-      mfaEnabled: 1,
-      mfaSecret: user.mfa_secret,
-      backupCodes: user.backup_codes,
-    });
+    // Fix: Use transaction with fresh data to prevent race condition
+    try {
+      db.transaction(() => {
+        const freshUser = statements.findUserById.get({ id: req.user.id });
+        if (!freshUser || !freshUser.mfa_secret) {
+          throw new Error('MFA_NOT_SETUP');
+        }
+        statements.enableMfa.run({
+          id: req.user.id,
+          mfaEnabled: 1,
+          mfaSecret: freshUser.mfa_secret,
+          backupCodes: freshUser.backup_codes,
+        });
+      })();
+    } catch (txErr) {
+      if (txErr.message === 'MFA_NOT_SETUP') {
+        return res.status(400).json({ success: false, message: 'MFA setup not initiated.' });
+      }
+      throw txErr;
+    }
     res.json({
       success: true,
       message: 'MFA enabled successfully!',
