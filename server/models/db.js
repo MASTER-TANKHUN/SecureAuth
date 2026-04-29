@@ -230,6 +230,10 @@ const statements = {
     SELECT * FROM refresh_tokens WHERE token_digest = @tokenDigest AND revoked = 0 AND expires_at > datetime('now')
   `),
 
+  findRefreshTokenAnyStatus: db.prepare(`
+    SELECT * FROM refresh_tokens WHERE token_digest = @tokenDigest
+  `),
+
   consumeRefreshToken: db.prepare(`
     UPDATE refresh_tokens
     SET revoked = 1

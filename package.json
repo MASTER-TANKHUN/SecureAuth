@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node server/server.js",
     "dev": "node --watch server/server.js",
-    "test:smoke": "node tests/smoke.js"
+    "test:smoke": "node tests/smoke.js",
+    "test:glm": "node tests/GLM_Test.js"
   },
   "dependencies": {
     "argon2": "^0.41.1",

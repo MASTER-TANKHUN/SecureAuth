@@ -42,14 +42,7 @@ function authenticate(req, res, next) {
     });
   }
 
-  // Verify account is not locked
-  if (user.locked_until && new Date(user.locked_until) > new Date()) {
-    return res.status(423).json({
-      success: false,
-      message: 'Account is temporarily locked.',
-      code: 'ACCOUNT_LOCKED',
-    });
-  }
+  // หมายเหตุ: ไม่ตรวจสอบ user.locked_until ใน middleware เพื่อป้องกันไม่ให้แฮกเกอร์โจมตีแบบ DoS เตะผู้ใช้ปัจจุบันออกจากระบบ
 
   const tokenSessionVersion = Number(decoded.sessionVersion ?? 0);
   const currentSessionVersion = Number(user.session_version ?? 0);

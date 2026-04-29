@@ -100,7 +100,7 @@ This patch addresses **8 security findings** identified during an independent co
 
 ---
 
-## Post-Audit Remediation II (April 29, 2026 - Claude 4.7 Audit)
+## Post-Audit Remediation II (April 29, 2026 - Claude 4.5 Audit)
 
 ### 🔴 HIGH Priority Fixes
 
@@ -140,9 +140,74 @@ This patch addresses **8 security findings** identified during an independent co
 
 ---
 
-### ✅ Items Reviewed But NOT Changed (Claude 4.7)
+### ✅ Items Reviewed But NOT Changed (Claude 4.5)
 
 | Finding | Reason Not Changed |
 |---------|-------------------|
 | `__CSRF-Token` not using `__Host-` prefix [LOW-6] | Requires HTTPS. Imposing this breaks local development (HTTP). `SameSite: strict` is sufficient. |
 | `trust proxy` config accepts only 1 IP [LOW-8] | Advanced load balancer/CDN configurations (multiple CIDRs) are deployment-specific infrastructure details, not application bugs. |
+
+---
+
+## 🚀 Post-Audit Remediation III (April 29, 2026 - Gemini 3.1 Pro Audit)
+
+### 🔴 HIGH Priority Fixes
+
+#### 1. Persistent Account Lockout DoS
+- **File:** `server/routes/auth.js` (Login handler)
+- **Finding:** When the account lock period expired, the system bypassed the lock check without resetting the `failed_login_attempts` counter. A subsequent failed login incremented the counter and locked the account again immediately.
+- **Fix:** Added logic to call `statements.resetFailedAttempts.run()` when the lockout period has expired before proceeding with login verification.
+
+### 🟠 MEDIUM Priority Fixes
+
+#### 2. Missing Alert Email in `/change-password`
+- **File:** `server/routes/auth.js`
+- **Finding:** The endpoint successfully changed the password but failed to call `sendPasswordChangeAlertEmail`, meaning users were not notified of changes.
+- **Fix:** Added the email notification step immediately following a successful password update.
+
+### 🟡 LOW Priority Fixes
+
+#### 3. Incorrect Middleware Order in `/mfa/setup`
+- **File:** `server/routes/auth.js`
+- **Finding:** `mfaAttemptLimiter` was placed before `authenticate`, allowing unauthenticated requests to exhaust the rate limit quota.
+- **Fix:** Swapped the middleware order so `authenticate` verifies the user's session before hitting the rate limiter.
+
+#### 4. Dummy Hash Length Mismatch and Synchronization
+- **File:** `server/routes/auth.js`
+- **Finding:** The hardcoded dummy hash did not match the expected 32-byte output length and would drift out of sync if the Argon2 configuration was changed.
+- **Fix:** Implemented a dynamic `getDummyHash()` function that generates and caches a dummy hash using the current application configuration, ensuring perfect timing and format parity.
+
+---
+
+## 🚀 Post-Audit Remediation IV (April 29, 2026 - Antigravity Audit)
+
+### 🔴 HIGH Priority Fixes
+
+#### 1. Refresh Token Theft Detection (Token Family Revocation)
+- **Files:** `server/routes/auth.js`, `server/models/db.js`
+- **Finding:** The system failed to identify "token replay" attacks. When a revoked token was submitted, it merely threw an error, allowing the attacker's newly issued token to remain valid.
+- **Fix:** Implemented a "find any status" lookup. If a revoked token is presented, the system now triggers a full family revocation (invalidating all refresh tokens for that user) and increments the `session_version` to kill all active access tokens.
+
+#### 2. Active Session Disruption DoS
+- **File:** `server/middleware/auth.js`
+- **Finding:** The `authenticate` middleware checked the `locked_until` column. An unauthenticated attacker could lock a victim's account via the login route (brute force), which would then terminate the victim's existing, legitimate sessions.
+- **Fix:** Removed the `locked_until` check from the middleware. Account lockout now only prevents *new* logins, preserving the availability of existing sessions.
+
+### 🟠 MEDIUM Priority Fixes
+
+#### 3. Email Enumeration via SMTP Timing
+- **File:** `server/routes/auth.js`
+- **Finding:** The server `await`-ed the SMTP transport response in registration, password reset, and email change routes. This created measurable network latency differences based on whether an email was actually sent.
+- **Fix:** Changed email delivery to an asynchronous approach using `.catch()` for error handling. Responses are now sent immediately after the hashing step, ensuring timing uniformity across all account existence states.
+
+#### 4. Missing Database Transactions in Sensitive Routes
+- **File:** `server/routes/auth.js`
+- **Finding:** The `/change-password` and `/delete-account` endpoints updated multiple database tables and revoked sessions sequentially without a transaction, risking data inconsistency if a failure occurred mid-process.
+- **Fix:** Wrapped the entire state-changing logic in `db.transaction()` to ensure atomicity.
+
+### 🟡 LOW Priority Fixes
+
+#### 5. XSS in Email Templates
+- **File:** `server/utils/email.js`
+- **Finding:** The `config.appUrl` was injected into HTML email templates without escaping. While the URL is admin-controlled, it lacked consistent protection against accidental HTML injection or malicious environment configuration.
+- **Fix:** Applied `escapeHtml()` to all URLs injected into HTML email bodies.

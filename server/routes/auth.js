@@ -38,6 +38,20 @@ const router = express.Router();
 const TOTP_STEP_MS = 30 * 1000;
 const TOTP_REPLAY_WINDOW_MS = 3 * TOTP_STEP_MS;
 
+let dummyHashCache = null;
+
+async function getDummyHash() {
+  if (!dummyHashCache) {
+    dummyHashCache = await argon2.hash('dummy-password-for-timing', {
+      type: argon2.argon2id,
+      timeCost: config.argon2.timeCost,
+      memoryCost: config.argon2.memoryCost,
+      parallelism: config.argon2.parallelism,
+    });
+  }
+  return dummyHashCache;
+}
+
 function invalidateUserSessions(userId) {
   statements.bumpSessionVersion.run({ id: userId });
   statements.revokeAllUserRefreshTokens.run({ userId });
@@ -268,12 +282,10 @@ router.post('/register', registerLimiter, validateRegistration, async (req, res)
       expiresAt,
     });
 
-    // Send verification email
-    try {
-      await sendVerificationEmail(email, verifyTokenStr);
-    } catch (emailErr) {
+    // Send verification email (ไม่ต้อง await เพื่อไม่ให้มี Network Delay leak)
+    sendVerificationEmail(email, verifyTokenStr).catch(emailErr => {
       console.error('Failed to send verification email:', emailErr.message);
-    }
+    });
 
     logSecurityEvent('user_registered', { userId, email, username, ipAddress });
 
@@ -454,12 +466,9 @@ router.post('/login', loginLimiter, emailLimiter, validateLogin, async (req, res
     // Find user
     const user = statements.findUserByEmail.get({ email });
 
-    // Dummy hash to prevent timing attacks
-    const dummyHash = '$argon2id$v=19$m=65536,t=3,p=4$6iGjXN/K1R9q0W+7Z1k/vQ$Yv5w9X8u7r6q5p4o3n2m1l0k';
-
     if (!user) {
       // Still perform the verify operation to match time
-      await argon2.verify(dummyHash, password);
+      await argon2.verify(await getDummyHash(), password);
 
       // Log failed attempt
       statements.createLoginLog.run({
@@ -495,6 +504,8 @@ router.post('/login', loginLimiter, emailLimiter, validateLogin, async (req, res
         success: false,
         message: `Account is temporarily locked. Try again in ${lockMinutes} minutes.`,
       });
+    } else if (user.locked_until && new Date(user.locked_until) <= new Date()) {
+      statements.resetFailedAttempts.run({ id: user.id });
     }
 
     // Verify password
@@ -734,8 +745,15 @@ router.post('/refresh', refreshLimiter, async (req, res) => {
 
     try {
       db.transaction(() => {
-        const freshToken = statements.findRefreshToken.get({ tokenDigest });
-        if (!freshToken || freshToken.revoked || new Date(freshToken.expires_at) < new Date()) {
+        const freshToken = statements.findRefreshTokenAnyStatus.get({ tokenDigest });
+        if (!freshToken || new Date(freshToken.expires_at) < new Date()) {
+          throw new Error('TOKEN_INVALID');
+        }
+
+        // หาก Token มีอยู่แต่ถูก revoked ไปแล้ว แสดงว่ามีการนำ Token ที่ใช้แล้วมารีเพลย์ (ขโมย)
+        if (freshToken.revoked) {
+          statements.revokeAllUserRefreshTokens.run({ userId: freshToken.user_id });
+          statements.bumpSessionVersion.run({ id: freshToken.user_id });
           throw new Error('TOKEN_INVALID');
         }
         const freshUser = statements.findUserById.get({ id: freshToken.user_id });
@@ -836,7 +854,7 @@ router.post('/logout', apiLimiter, async (req, res) => {
 // ============================================
 // MFA SETUP
 // ============================================
-router.post('/mfa/setup', mfaAttemptLimiter, authenticate, async (req, res) => {
+router.post('/mfa/setup', authenticate, mfaAttemptLimiter, async (req, res) => {
   try {
     const { password } = req.body;
 
@@ -1227,11 +1245,10 @@ router.post('/forgot-password', forgotPasswordLimiter, emailLimiter, async (req,
 
       logSecurityEvent('password_reset_initiated', { userId: user.id, email: user.email });
 
-      try {
-        await sendPasswordResetEmail(normalizedEmail, resetToken);
-      } catch (emailErr) {
+      // Send password reset email (ไม่ต้อง await เพื่อไม่ให้มี Network Delay leak)
+      sendPasswordResetEmail(normalizedEmail, resetToken).catch(emailErr => {
         console.error('Failed to send password reset email:', emailErr.message);
-      }
+      });
     } else {
       // Simulate token generation timing to prevent enumeration
       await hashToken('dummy-token-for-timing-balance');
@@ -1439,14 +1456,25 @@ router.post('/change-password', authenticate, sensitiveActionLimiter, async (req
       parallelism: config.argon2.parallelism,
     });
 
-    // Update password
-    statements.updatePassword.run({ id: user.id, passwordHash });
-    statements.addPasswordToHistory.run({ userId: user.id, passwordHash });
-    statements.deleteOldPasswordHistory.run({ userId: user.id });
-    
-    // Revoke all refresh tokens
-    invalidateUserSessions(user.id);
-    statements.resetFailedAttempts.run({ id: user.id });
+    // Update password inside a transaction for data integrity
+    db.transaction(() => {
+      statements.updatePassword.run({ id: user.id, passwordHash });
+      statements.addPasswordToHistory.run({ userId: user.id, passwordHash });
+      statements.deleteOldPasswordHistory.run({ userId: user.id });
+      
+      // Inline invalidateUserSessions logic to ensure it shares the transaction
+      statements.bumpSessionVersion.run({ id: user.id });
+      statements.revokeAllUserRefreshTokens.run({ userId: user.id });
+      
+      statements.resetFailedAttempts.run({ id: user.id });
+    })();
+
+    // Send password change alert email
+    try {
+      await sendPasswordChangeAlertEmail(user.email, ipAddress);
+    } catch (emailErr) {
+      console.error('Failed to send password change alert email:', emailErr.message);
+    }
 
     logSecurityEvent('password_changed', { userId: user.id, ipAddress });
 
@@ -1530,16 +1558,10 @@ router.post('/change-email', authenticate, sensitiveActionLimiter, async (req, r
       return res.status(500).json({ success: false, message: 'Failed to update email. Please try again.' });
     }
 
-    try {
-      await sendVerificationEmail(normalizedEmail, verifyTokenStr);
-    } catch (emailErr) {
+    // ส่งอีเมลแบบ Asynchronous เพื่อไม่ให้เกิด Network Delay Leak
+    sendVerificationEmail(normalizedEmail, verifyTokenStr).catch(emailErr => {
       console.error('Failed to send email change verification email:', emailErr.message);
-      statements.markActiveVerificationTokensUsedByUserAndType.run({
-        userId: user.id,
-        type: 'email_change',
-      });
-      return res.status(500).json({ success: false, message: 'Failed to send verification email. Please try again.' });
-    }
+    });
 
     logSecurityEvent('email_change_initiated', {
       userId: user.id,
@@ -1585,8 +1607,11 @@ router.post('/delete-account', authenticate, sensitiveActionLimiter, async (req,
       return res.status(401).json({ success: false, message: 'Incorrect password.' });
     }
 
-    invalidateUserSessions(user.id);
-    statements.deleteUser.run({ id: user.id });
+    db.transaction(() => {
+      statements.bumpSessionVersion.run({ id: user.id });
+      statements.revokeAllUserRefreshTokens.run({ userId: user.id });
+      statements.deleteUser.run({ id: user.id });
+    })();
     
     res.clearCookie('access_token', { path: '/' });
     res.clearCookie('refresh_token', { path: '/' });

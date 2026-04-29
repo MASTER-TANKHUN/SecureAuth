@@ -83,15 +83,22 @@ Developed by MasterT.
    npm run dev
    ```
 
-## Smoke Testing (Quality Assurance)
+## Testing (Quality Assurance)
 
-A comprehensive automated smoke test is included to ensure all security features work as expected.
+Automated tests are included to ensure all security features work as expected.
 
-### How to Run:
+### 1. Basic Smoke Test (Created by GPT5.4)
 1. **Ensure no other server is running** on port 3000.
 2. **Run the command**:
    ```bash
    npm run test:smoke
+   ```
+
+### 2. Extended Security & Edge-Case Test (Created by GLM5.1)
+This suite performs 40+ deep security checks including rate limit behavior, concurrent token rotation, and timing side-channels.
+1. **Run the command**:
+   ```bash
+   npm run test:glm
    ```
 
 ### What it tests:
@@ -113,7 +120,13 @@ server/utils/            Helper utilities (Crypto, Email, Tokens)
 tests/                   Automated smoke tests
 ```
 
+## ⚠️ Security Notes
+
+- Set `NODE_ENV=production` before deploying
+- Dev tokens (devToken) are only shown in development mode
+- Make sure to set all required secrets in production
 ---
+
 
 # SecureAuth (ภาษาไทย)
 
@@ -200,15 +213,22 @@ tests/                   Automated smoke tests
    npm run dev
    ```
 
-## การทดสอบระบบ (Smoke Testing)
+## การทดสอบระบบ (Automated Testing)
 
-โปรเจกต์นี้มีระบบทดสอบอัตโนมัติ (Smoke Test) เพื่อยืนยันว่าฟีเจอร์ความปลอดภัยทั้งหมดทำงานได้ถูกต้อง
+โปรเจกต์นี้มีระบบทดสอบอัตโนมัติเพื่อยืนยันว่าฟีเจอร์ความปลอดภัยทั้งหมดทำงานได้ถูกต้อง
 
-### วิธีการรันเทส:
+### 1. การทดสอบพื้นฐาน (Smoke Test)
 1. **ตรวจสอบว่าไม่มี Server อื่นรันอยู่** บน Port 3000
 2. **รันคำสั่ง**:
    ```bash
    npm run test:smoke
+   ```
+
+### 2. การทดสอบความปลอดภัยขั้นสูง (GLM_Test)
+ระบบทดสอบเจาะลึก 40+ รายการ รวมถึงการตรวจสอบ Rate Limit, การหมุน Token พร้อมกัน และการป้องกันการโจมตีทางเวลา (Timing Attacks)
+1. **รันคำสั่ง**:
+   ```bash
+   npm run test:glm
    ```
 
 ### สิ่งที่ระบบจะทดสอบ:

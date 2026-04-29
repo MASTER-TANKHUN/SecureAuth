@@ -48,12 +48,13 @@ async function sendVerificationEmail(to, token) {
   const transport = await getTransporter();
   const url = `${config.appUrl}/verify.html#token=${token}`;
   devLog('Verification Link', url);
+  const safeUrl = escapeHtml(url);
 
   return transport.sendMail({
     from: `"SecureAuth" <${config.email.from}>`,
     to,
     subject: 'Verify your email',
-    html: `<p>Click to verify: <a href="${url}">${url}</a></p>`,
+    html: `<p>Click to verify: <a href="${safeUrl}">${safeUrl}</a></p>`,
   });
 }
 
@@ -61,12 +62,13 @@ async function sendPasswordResetEmail(to, token) {
   const transport = await getTransporter();
   const url = `${config.appUrl}/reset-password.html#token=${token}`;
   devLog('Password Reset Link', url);
+  const safeUrl = escapeHtml(url);
 
   return transport.sendMail({
     from: `"SecureAuth" <${config.email.from}>`,
     to,
     subject: 'Reset your password',
-    html: `<p>Click to reset: <a href="${url}">${url}</a></p>`,
+    html: `<p>Click to reset: <a href="${safeUrl}">${safeUrl}</a></p>`,
   });
 }
 
@@ -74,12 +76,13 @@ async function sendMfaDisableEmail(to, token) {
   const transport = await getTransporter();
   const url = `${config.appUrl}/mfa-disable.html#token=${token}`;
   devLog('MFA Disable Link', url);
+  const safeUrl = escapeHtml(url);
 
   return transport.sendMail({
     from: `"SecureAuth" <${config.email.from}>`,
     to,
     subject: 'Confirm MFA disable',
-    html: `<p>Click to confirm: <a href="${url}">${url}</a></p>`,
+    html: `<p>Click to confirm: <a href="${safeUrl}">${safeUrl}</a></p>`,
   });
 }
 
