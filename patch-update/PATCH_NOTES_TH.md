@@ -191,3 +191,22 @@
 - **ไฟล์:** `server/utils/email.js`
 - **ปัญหา:** มีการฉีดตัวแปร `config.appUrl` ลงใน HTML ของอีเมลโดยตรงโดยไม่มีการ Escape ซึ่งอาจเปิดช่องทาง XSS หากค่าใน Environment ถูกแทรกแซงหรือตั้งค่าผิดพลาด
 - **แก้ไข:** ใช้ฟังก์ชัน `escapeHtml()` ครอบ URL ทุกลิงก์ที่ส่งออกไปในอีเมล
+
+---
+
+## 🛡️ Enterprise Security Enhancement V
+
+### 🚀 ฟีเจอร์ใหม่ระดับ Enterprise
+#### 1. Tamper-evident Audit Trail & Digital Signature (Phase 2)
+- **ไฟล์:** `server/models/db.js`, `server/workers/auditWorker.js`, `server/utils/auditQueue.js`
+- **รายละเอียด:** อัปเกรดระบบ Audit Log เป็นแบบ "Hash Chaining" (ร้อยเรียง Hash เหมือน Blockchain) เพื่อป้องกันการแอบแก้ไข Log ย้อนหลัง
+- **Micro-batching:** ใช้ Redis และ BullMQ เพื่อทำ Micro-batching ช่วยให้การเขียน Log จำนวนมากรวมเป็น Transaction เดียว ลดปัญหา DB Lock
+- **Digital Signature:** เหตุการณ์สำคัญ (เช่น เปลี่ยนรหัสผ่าน, ยืนยัน MFA) จะถูกเซ็นด้วย ECDSA Private Key เพื่อพิสูจน์ความถูกต้องระดับ Non-repudiation
+
+#### 2. Fraud Detection: Impossible Travel (Phase 1)
+- **ไฟล์:** `server/routes/auth.js`
+- **รายละเอียด:** ระบบคำนวณความเร็วในการเปลี่ยนพิกัดของผู้ใช้ด้วยสูตร Haversine หากพบว่าล็อกอิน 2 ครั้งห่างกันด้วยระยะทางที่เป็นไปไม่ได้ (เช่น ไทยไปอเมริกาใน 1 นาที) จะถูกตั้งสถานะ `IMPOSSIBLE_TRAVEL` และเรียกขอ Step-up Authentication ทันที
+
+#### 3. Fraud Detection: User-Agent Binding (Phase 1)
+- **ไฟล์:** `server/middleware/auth.js`
+- **รายละเอียด:** ทำการ Hash User-Agent ฝังลงไปใน JWT เพื่อป้องกัน Token Hijacking หากพบว่า User-Agent เปลี่ยนกลาง Session จะแจ้งเตือนและส่ง Flag `req.uaMismatch` สำหรับการเฝ้าระวัง

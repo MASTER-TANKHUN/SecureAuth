@@ -11,6 +11,7 @@ Developed by MasterT.
 ## Stack
 
 - Backend: Node.js, Express, SQLite (`better-sqlite3`)
+- Queue: Redis + BullMQ (for high-throughput audit logging)
 - Auth: JWT access token + rotating refresh token in HttpOnly cookies
 - Password hashing: Argon2id
 - MFA: TOTP with backup codes
@@ -62,6 +63,7 @@ Developed by MasterT.
 ### Requirements
 - Node.js 16 or later
 - npm
+- Redis Server (running on localhost:6379)
 
 ### Installation Steps
 1. **Install dependencies**:
@@ -141,6 +143,7 @@ tests/                   Automated smoke tests
 ## เทคโนโลยีที่ใช้ (Stack)
 
 - **Backend**: Node.js, Express, SQLite (`better-sqlite3`)
+- **Queue**: Redis + BullMQ (สำหรับระบบ Audit Log คิวเพื่อทำ Micro-batching)
 - **Auth**: ใช้ JWT access token คู่กับ rotating refresh token ในรูปแบบ HttpOnly cookies
 - **Password hashing**: ใช้ Argon2id (มาตรฐานสูงสุด)
 - **MFA**: รองรับ TOTP (แอปยืนยันตัวตน) และมีระบบรหัสกู้คืน (Backup codes)
@@ -192,6 +195,7 @@ tests/                   Automated smoke tests
 ### สิ่งที่จำเป็น
 - Node.js 16 ขึ้นไป
 - npm
+- Redis Server (จำเป็นสำหรับรัน Background Worker ที่ localhost:6379)
 
 ### ขั้นตอนการติดตั้ง
 1. **ติดตั้ง Library**:

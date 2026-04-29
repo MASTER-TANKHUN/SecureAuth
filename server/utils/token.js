@@ -5,7 +5,7 @@ const config = require('../config');
 /**
  * Generate an access token (short-lived JWT)
  */
-function generateAccessToken(user) {
+function generateAccessToken(user, uaHash = null) {
   const payload = {
     sub: user.id,
     email: user.email,
@@ -13,6 +13,9 @@ function generateAccessToken(user) {
     type: 'access',
     sessionVersion: Number(user.session_version ?? 0),
   };
+  if (uaHash) {
+    payload.uaHash = uaHash;
+  }
   return jwt.sign(payload, config.jwt.secret, {
     expiresIn: config.jwt.expiresIn,
   });

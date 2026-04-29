@@ -64,6 +64,20 @@
         </p>
       </div>
 
+      <!-- Backup Code Modal -->
+      <div id="backupCodeModal" class="modal hidden" style="position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 50;">
+        <div class="modal-content auth-card" style="width: 100%; max-width: 400px; margin: 20px;">
+          <p class="auth-subtitle auth-subtitle-top" style="margin-top: 0; color: var(--text-primary); font-weight: 600;">Enter Backup Code</p>
+          <div class="form-group">
+            <input type="text" id="backupCodeInput" class="form-input" placeholder="e.g. A1B2C3D4E5F6">
+          </div>
+          <div style="display: flex; gap: 10px; margin-top: 20px;">
+            <button type="button" id="cancelBackupBtn" class="btn" style="background: var(--bg-primary); border: 1px solid var(--border-subtle); color: var(--text-primary);">Cancel</button>
+            <button type="button" id="submitBackupBtn" class="btn btn-primary">Submit</button>
+          </div>
+        </div>
+      </div>
+
       <div class="auth-footer">
         Don't have an account? <a href="/register.html">Create one</a>
       </div>

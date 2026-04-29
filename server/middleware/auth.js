@@ -54,6 +54,26 @@ function authenticate(req, res, next) {
     });
   }
 
+  const userAgent = req.headers['user-agent'] || 'Unknown';
+  const crypto = require('crypto');
+  const currentUaHash = crypto.createHash('sha256').update(userAgent).digest('hex');
+
+  // If the token contains a User-Agent hash, compare it
+  if (decoded.uaHash && decoded.uaHash !== currentUaHash) {
+    const ipAddress = req.ip || req.connection.remoteAddress;
+    statements.createLoginLog.run({
+      userId: user.id,
+      ipAddress,
+      userAgent,
+      success: 0,
+      failureReason: 'session_hijack_attempt_ua_mismatch',
+    });
+    
+    // SOFT CHECK: We flag it for downstream controllers instead of hard blocking
+    // to prevent False Positives from minor browser updates.
+    req.uaMismatch = true;
+  }
+
   req.user = {
     id: user.id,
     email: user.email,

@@ -274,6 +274,10 @@ function startTokenCleanup() {
 let cleanupHandle = null;
 
 if (require.main === module) {
+  // Start the background worker for Audit Logs
+  require('./workers/auditWorker');
+  console.log('✅ Audit Worker initialized (BullMQ)');
+
   cleanupHandle = startTokenCleanup();
   startServer();
 }

@@ -91,23 +91,45 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // Use backup code
+  const backupModal = document.getElementById('backupCodeModal');
+  const cancelBackupBtn = document.getElementById('cancelBackupBtn');
+  const submitBackupBtn = document.getElementById('submitBackupBtn');
+  const backupInput = document.getElementById('backupCodeInput');
+
   document.getElementById('useBackupLink')?.addEventListener('click', (e) => {
     e.preventDefault();
-    const code = prompt('Enter backup code:');
-    if (!code) return;
+    if (backupModal) {
+      backupModal.classList.remove('hidden');
+      backupInput.value = '';
+      backupInput.focus();
+    }
+  });
 
-    (async () => {
+  if (cancelBackupBtn) {
+    cancelBackupBtn.addEventListener('click', () => {
+      backupModal.classList.add('hidden');
+    });
+  }
+
+  if (submitBackupBtn) {
+    submitBackupBtn.addEventListener('click', async () => {
+      const code = backupInput.value.trim().toUpperCase();
+      if (!code) return showAlert('alert', 'Enter backup code.');
+
+      backupModal.classList.add('hidden');
       setLoading(verifyMfaBtn, true);
+      
       const result = await apiRequest('/auth/login', {
         method: 'POST',
-        body: JSON.stringify({ email: pendingEmail, password: pendingPassword, mfaCode: code.trim() }),
+        body: JSON.stringify({ email: pendingEmail, password: pendingPassword, mfaCode: code }),
       });
       setLoading(verifyMfaBtn, false);
+      
       if (result.ok && result.data.success) {
         window.location.href = '/dashboard.html';
       } else {
         showAlert('alert', result.data.message || 'Invalid backup code.');
       }
-    })();
-  });
+    });
+  }
 });

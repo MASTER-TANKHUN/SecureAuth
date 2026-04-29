@@ -211,3 +211,17 @@ This patch addresses **8 security findings** identified during an independent co
 - **File:** `server/utils/email.js`
 - **Finding:** The `config.appUrl` was injected into HTML email templates without escaping. While the URL is admin-controlled, it lacked consistent protection against accidental HTML injection or malicious environment configuration.
 - **Fix:** Applied `escapeHtml()` to all URLs injected into HTML email bodies.
+
+🛡️ Enterprise Security Enhancement V
+🚀 Enterprise-Grade New Features
+1. Tamper-evident Audit Trail & Digital Signature (Phase 2)
+Files: server/models/db.js, server/workers/auditWorker.js, server/utils/auditQueue.js
+Description: Upgraded the Audit Log system to a Hash Chaining model (similar to blockchain linking) to prevent retrospective log tampering.
+Micro-batching: Utilizes Redis and BullMQ for micro-batching, allowing high-volume logs to be grouped into a single transaction, reducing database lock contention.
+Digital Signature: Critical events (e.g., password changes, MFA verification) are signed using an ECDSA private key to ensure integrity and provide non-repudiation.
+2. Fraud Detection: Impossible Travel (Phase 1)
+File: server/routes/auth.js
+Description: Implements geolocation velocity checks using the Haversine formula. If two login events occur within an შეუძლausible timeframe (e.g., Thailand to the U.S. in one minute), the system flags the event as IMPOSSIBLE_TRAVEL and immediately triggers step-up authentication.
+3. Fraud Detection: User-Agent Binding (Phase 1)
+File: server/middleware/auth.js
+Description: Hashes the User-Agent and embeds it into the JWT to mitigate token hijacking. If a mismatch is detected during a session, the system raises an alert and sets the flag req.uaMismatch for monitoring.

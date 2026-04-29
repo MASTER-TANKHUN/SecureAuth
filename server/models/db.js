@@ -64,6 +64,50 @@ db.exec(`
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
   );
 
+  CREATE TABLE IF NOT EXISTS login_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    ip_address TEXT,
+    user_agent TEXT,
+    latitude REAL,
+    longitude REAL,
+    event_time DATETIME DEFAULT CURRENT_TIMESTAMP,
+    is_trusted INTEGER DEFAULT 0,
+    status TEXT DEFAULT 'success',
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_login_user_time ON login_events (user_id, event_time DESC);
+
+  CREATE TABLE IF NOT EXISTS log_chain_state (
+    id INTEGER PRIMARY KEY,
+    last_hash TEXT NOT NULL
+  );
+  INSERT OR IGNORE INTO log_chain_state (id, last_hash) VALUES (1, 'GENESIS_HASH_0000000000000000000000000');
+
+  CREATE TABLE IF NOT EXISTS audit_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_type TEXT NOT NULL,
+    user_id INTEGER,
+    ip_address TEXT,
+    user_agent TEXT,
+    payload TEXT,
+    previous_hash TEXT NOT NULL,
+    current_hash TEXT NOT NULL,
+    signature TEXT,
+    key_version TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE INDEX IF NOT EXISTS idx_audit_user_time ON audit_logs (user_id, created_at);
+  CREATE INDEX IF NOT EXISTS idx_audit_event_time ON audit_logs (event_type, created_at);
+
+  CREATE TABLE IF NOT EXISTS signature_keys (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    key_version TEXT UNIQUE NOT NULL,
+    public_key_pem TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    revoked_at DATETIME
+  );
+
   CREATE TABLE IF NOT EXISTS password_history (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
@@ -120,6 +164,11 @@ try {
   db.exec('ALTER TABLE refresh_tokens ADD COLUMN session_version INTEGER DEFAULT 0');
 } catch (e) {
   // Column already exists
+}
+try {
+  db.exec('ALTER TABLE login_events ADD COLUMN status TEXT DEFAULT "success"');
+} catch (e) {
+  // Column already exists or table missing
 }
 
 // ============================================
@@ -271,6 +320,28 @@ const statements = {
   countRecentFailedAttempts: db.prepare(`
     SELECT COUNT(*) as count FROM login_logs
     WHERE ip_address = @ipAddress AND success = 0 AND created_at > datetime('now', '-15 minutes')
+  `),
+
+  createLoginEvent: db.prepare(`
+    INSERT INTO login_events (user_id, ip_address, user_agent, latitude, longitude, is_trusted, status)
+    VALUES (@userId, @ipAddress, @userAgent, @latitude, @longitude, @isTrusted, @status)
+  `),
+
+  getLastLoginEvent: db.prepare(`
+    SELECT * FROM login_events WHERE user_id = @userId ORDER BY event_time DESC LIMIT 1
+  `),
+
+  getLogChainState: db.prepare(`SELECT last_hash FROM log_chain_state WHERE id = 1`),
+  
+  updateLogChainState: db.prepare(`UPDATE log_chain_state SET last_hash = @lastHash WHERE id = 1`),
+  
+  insertAuditLog: db.prepare(`
+    INSERT INTO audit_logs (event_type, user_id, ip_address, user_agent, payload, previous_hash, current_hash, signature, key_version)
+    VALUES (@eventType, @userId, @ipAddress, @userAgent, @payload, @previousHash, @currentHash, @signature, @keyVersion)
+  `),
+
+  insertSignatureKey: db.prepare(`
+    INSERT OR IGNORE INTO signature_keys (key_version, public_key_pem) VALUES (@keyVersion, @publicKeyPem)
   `),
 
   // Password history operations

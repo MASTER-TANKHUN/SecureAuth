@@ -457,11 +457,12 @@ router.post('/verify-email', verifyEmailLimiter, async (req, res) => {
 // ============================================
 // LOGIN
 // ============================================
-router.post('/login', loginLimiter, emailLimiter, validateLogin, async (req, res) => {
+router.post('/login', loginLimiter, emailLimiter, mfaAttemptLimiter, validateLogin, async (req, res) => {
   try {
     const { email, password, mfaCode } = req.body;
     const ipAddress = req.ip || req.connection.remoteAddress;
     const userAgent = req.headers['user-agent'] || 'Unknown';
+    const uaHash = crypto.createHash('sha256').update(userAgent).digest('hex');
 
     // Find user
     const user = statements.findUserByEmail.get({ email });
@@ -657,8 +658,79 @@ router.post('/login', loginLimiter, emailLimiter, validateLogin, async (req, res
     // Only clear failed-attempt counters after every authentication factor succeeds.
     statements.resetFailedAttempts.run({ id: user.id });
 
+    // --------------
+    // FRAUD DETECTION LOGIC: Impossible Travel
+    // --------------
+    const geoip = require('geoip-lite');
+    const geo = geoip.lookup(ipAddress);
+    let latitude = null;
+    let longitude = null;
+    if (geo && geo.ll) {
+      latitude = geo.ll[0];
+      longitude = geo.ll[1];
+    }
+
+    const lastLogin = statements.getLastLoginEvent.get({ userId: user.id });
+    let isImpossibleTravel = false;
+    
+    if (lastLogin && lastLogin.latitude && lastLogin.longitude && latitude && longitude) {
+      function getDistance(lat1, lon1, lat2, lon2) {
+        const R = 6371; // Earth radius in km
+        const dLat = (lat2 - lat1) * Math.PI / 180;
+        const dLon = (lon2 - lon1) * Math.PI / 180;
+        const a = 
+            Math.sin(dLat/2) * Math.sin(dLat/2) +
+            Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * 
+            Math.sin(dLon/2) * Math.sin(dLon/2); 
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)); 
+        return R * c; 
+      }
+      
+      const distance = getDistance(lastLogin.latitude, lastLogin.longitude, latitude, longitude);
+      const timeDiffHours = (new Date() - new Date(lastLogin.event_time)) / (1000 * 60 * 60);
+      
+      if (timeDiffHours >= 0.0833) { // 5 mins minimum to prevent infinite speed
+        const speed = distance / timeDiffHours;
+        if (speed > 800) { // km/h
+          isImpossibleTravel = true;
+        }
+      }
+    }
+
+    if (isImpossibleTravel) {
+      logSecurityEvent('impossible_travel_detected', { userId: user.id, email, ipAddress });
+      
+      // We must insert the event so the next calculation uses this location, 
+      // preventing a bypass where moving back is considered "normal".
+      statements.createLoginEvent.run({
+        userId: user.id,
+        ipAddress,
+        userAgent,
+        latitude,
+        longitude,
+        isTrusted: 0,
+        status: 'pending_verification'
+      });
+      
+      return res.status(403).json({
+        success: false,
+        message: 'Unusual login location detected. Step-up authentication required.',
+        code: 'IMPOSSIBLE_TRAVEL'
+      });
+    }
+
+    statements.createLoginEvent.run({
+      userId: user.id,
+      ipAddress,
+      userAgent,
+      latitude,
+      longitude,
+      isTrusted: 1,
+      status: 'success'
+    });
+
     // Generate tokens
-    const accessToken = generateAccessToken(user);
+    const accessToken = generateAccessToken(user, uaHash);
     const refreshToken = generateRefreshToken();
 
     // Store hashed refresh token + SHA-256 digest for lookup
