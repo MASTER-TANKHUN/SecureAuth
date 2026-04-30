@@ -57,11 +57,117 @@ function invalidateUserSessions(userId) {
   statements.revokeAllUserRefreshTokens.run({ userId });
 }
 
+/**
+ * Source-based login throttling - locks specific (email, IP) pairs
+ * instead of locking the entire account (DoS prevention)
+ */
+function handleFailedAttempt(email, ipAddress, userId = null) {
+  // Cleanup old records periodically (1% chance)
+  if (Math.random() < 0.01) {
+    statements.cleanupStaleThrottles.run();
+  }
+
+  // Check if this source is already locked
+  const throttle = statements.findSourceThrottle.get({
+    email: email.toLowerCase(),
+    ipAddress
+  });
+
+  if (throttle?.locked_until && new Date(throttle.locked_until) > new Date()) {
+    const lockMinutes = Math.ceil((new Date(throttle.locked_until) - new Date()) / 60000);
+    return {
+      status: 429,
+      body: {
+        success: false,
+        message: `Too many failed attempts from this location. Try again in ${lockMinutes} minutes.`,
+        code: 'SOURCE_THROTTLED',
+        lockedUntil: throttle.locked_until,
+      }
+    };
+  }
+
+  // Increment failed count for this source
+  statements.incrementSourceThrottle.run({
+    email: email.toLowerCase(),
+    ipAddress
+  });
+
+  const updated = statements.findSourceThrottle.get({
+    email: email.toLowerCase(),
+    ipAddress
+  });
+
+  // Lock this source after 5 failures
+  if (updated.failed_count >= 5) {
+    const lockUntil = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+    statements.lockSourceThrottle.run({
+      email: email.toLowerCase(),
+      ipAddress,
+      lockedUntil: lockUntil
+    });
+
+    logSecurityEvent('source_throttled', {
+      email,
+      ipAddress,
+      userId,
+      attempts: updated.failed_count,
+      totalFailures: updated.total_failures,
+    });
+
+    return {
+      status: 429,
+      body: {
+        success: false,
+        message: 'Too many failed attempts from this location. Please try again in 30 minutes.',
+        code: 'SOURCE_THROTTLED',
+        requireCaptcha: true,
+        lockedUntil: lockUntil,
+      }
+    };
+  }
+
+  return null; // No throttle triggered
+}
+
+/**
+ * Soft reset throttling after successful login - keeps record for audit
+ */
+function resetThrottling(email, ipAddress, userId) {
+  statements.softResetThrottle.run({
+    email: email.toLowerCase(),
+    ipAddress,
+    lastSuccess: new Date().toISOString()
+  });
+
+  // Log for security audit trail
+  logSecurityEvent('throttle_reset_success_login', {
+    email,
+    ipAddress,
+    userId,
+    timestamp: new Date().toISOString()
+  });
+}
+
 async function registerSensitiveActionFailure(user, req, failureReason, eventName) {
   const ipAddress = req.ip || req.connection.remoteAddress;
   const userAgent = req.headers['user-agent'] || 'Unknown';
 
-  statements.incrementFailedAttempts.run({ id: user.id });
+  // Use source-based throttling instead of account lockout (DoS prevention)
+  const throttleResult = handleFailedAttempt(user.email, ipAddress, user.id);
+  if (throttleResult) {
+    // Source is throttled - log and return
+    logSecurityEvent('sensitive_action_throttled', {
+      userId: user.id,
+      email: user.email,
+      ipAddress,
+      failureReason,
+      eventName,
+      throttleStatus: throttleResult.body.code,
+    });
+    return true; // Indicate that action was blocked
+  }
+
+  // Log the failure but don't increment account-level counter
   statements.createLoginLog.run({
     userId: user.id,
     ipAddress,
@@ -69,29 +175,6 @@ async function registerSensitiveActionFailure(user, req, failureReason, eventNam
     success: 0,
     failureReason,
   });
-
-  const updatedUser = statements.findUserById.get({ id: user.id });
-  if (updatedUser.failed_login_attempts >= 5) {
-    const lockUntil = new Date(Date.now() + 30 * 60 * 1000).toISOString();
-    statements.lockAccount.run({ id: user.id, lockedUntil: lockUntil });
-    invalidateUserSessions(user.id);
-
-    try {
-      await sendLockoutAlertEmail(user.email, ipAddress);
-    } catch (emailErr) {
-      console.error('Failed to send sensitive-action lockout alert email:', emailErr.message);
-    }
-
-    logSecurityEvent('account_locked_sensitive_action', {
-      userId: user.id,
-      email: user.email,
-      ipAddress,
-      failureReason,
-      eventName,
-    });
-
-    return true;
-  }
 
   logSecurityEvent(eventName, { userId: user.id, ipAddress, failureReason });
   return false;
@@ -292,7 +375,6 @@ router.post('/register', registerLimiter, validateRegistration, async (req, res)
     res.status(201).json({
       success: true,
       message: 'If an account exists with this email, a verification link has been sent.',
-      ...(config.nodeEnv === 'development' && { devToken: verifyTokenStr }),
     });
   } catch (error) {
     console.error('Registration error:', error);
@@ -526,24 +608,10 @@ router.post('/login', loginLimiter, emailLimiter, mfaAttemptLimiter, validateLog
 
       logSecurityEvent('login_failed', { userId: user.id, email, ipAddress, reason: 'invalid_password' });
 
-      // Check if account should be locked (5 failed attempts)
-      const updatedUser = statements.findUserById.get({ id: user.id });
-      if (updatedUser.failed_login_attempts >= 5) {
-        const lockUntil = new Date(Date.now() + 30 * 60 * 1000).toISOString();
-        statements.lockAccount.run({ id: user.id, lockedUntil: lockUntil });
-
-        try {
-          await sendLockoutAlertEmail(user.email, ipAddress);
-        } catch (emailErr) {
-          console.error('Failed to send login lockout alert email:', emailErr.message);
-        }
-
-        logSecurityEvent('account_locked_login', { userId: user.id, email, ipAddress });
-
-        return res.status(423).json({
-          success: false,
-          message: 'Account is temporarily locked due to too many failed attempts. Try again in 30 minutes.',
-        });
+      // Use source-based throttling instead of account lockout (DoS prevention)
+      const throttleResult = handleFailedAttempt(email, ipAddress, user.id);
+      if (throttleResult) {
+        return res.status(throttleResult.status).json(throttleResult.body);
       }
 
       return res.status(401).json({
@@ -629,23 +697,10 @@ router.post('/login', loginLimiter, emailLimiter, mfaAttemptLimiter, validateLog
 
         logSecurityEvent('login_failed', { userId: user.id, email, ipAddress, reason: 'invalid_mfa' });
 
-        const updatedUser = statements.findUserById.get({ id: user.id });
-        if (updatedUser.failed_login_attempts >= 5) {
-          const lockUntil = new Date(Date.now() + 30 * 60 * 1000).toISOString();
-          statements.lockAccount.run({ id: user.id, lockedUntil: lockUntil });
-
-          try {
-            await sendLockoutAlertEmail(user.email, ipAddress);
-          } catch (emailErr) {
-            console.error('Failed to send login lockout alert email:', emailErr.message);
-          }
-
-          logSecurityEvent('account_locked_login', { userId: user.id, email, ipAddress });
-
-          return res.status(423).json({
-            success: false,
-            message: 'Account is temporarily locked due to too many failed attempts. Try again in 30 minutes.',
-          });
+        // Use source-based throttling instead of account lockout (DoS prevention)
+        const throttleResult = handleFailedAttempt(email, ipAddress, user.id);
+        if (throttleResult) {
+          return res.status(throttleResult.status).json(throttleResult.body);
         }
 
         return res.status(401).json({
@@ -657,6 +712,9 @@ router.post('/login', loginLimiter, emailLimiter, mfaAttemptLimiter, validateLog
 
     // Only clear failed-attempt counters after every authentication factor succeeds.
     statements.resetFailedAttempts.run({ id: user.id });
+
+    // Reset source-based throttling on successful login (soft reset - keeps audit trail)
+    resetThrottling(email, ipAddress, user.id);
 
     // --------------
     // FRAUD DETECTION LOGIC: Impossible Travel
@@ -741,6 +799,7 @@ router.post('/login', loginLimiter, emailLimiter, mfaAttemptLimiter, validateLog
       token: await hashToken(refreshToken),
       tokenDigest,
       sessionVersion: Number(user.session_version ?? 0),
+      uaHash,
       expiresAt: refreshExpiresAt,
     });
 
@@ -836,12 +895,39 @@ router.post('/refresh', refreshLimiter, async (req, res) => {
           throw new Error('SESSION_EXPIRED');
         }
 
+        // UA Binding Validation (Option A: Revoke legacy tokens)
+        const userAgent = req.headers['user-agent'] || 'Unknown';
+        const currentUaHash = crypto.createHash('sha256').update(userAgent).digest('hex');
+
+        // Check for legacy tokens without UA binding - revoke them
+        if (freshToken.ua_hash === null || freshToken.ua_hash === undefined) {
+          statements.revokeRefreshToken.run({ tokenDigest });
+          logSecurityEvent('legacy_token_revoked', {
+            userId: freshToken.user_id,
+            reason: 'missing_ua_binding',
+            ipAddress: req.ip,
+          });
+          throw new Error('TOKEN_DEPRECATED');
+        }
+
+        // Check UA mismatch - potential token theft
+        if (freshToken.ua_hash !== currentUaHash) {
+          statements.revokeAllUserRefreshTokens.run({ userId: freshToken.user_id });
+          statements.bumpSessionVersion.run({ id: freshToken.user_id });
+          logSecurityEvent('refresh_token_ua_mismatch', {
+            userId: freshToken.user_id,
+            ipAddress: req.ip,
+            userAgent: userAgent,
+          });
+          throw new Error('TOKEN_INVALID');
+        }
+
         const consumeResult = statements.consumeRefreshToken.run({ tokenDigest });
         if (consumeResult.changes !== 1) {
           throw new Error('TOKEN_INVALID');
         }
 
-        newAccessToken = generateAccessToken(freshUser);
+        newAccessToken = generateAccessToken(freshUser, currentUaHash);
         newRefreshToken = generatedRefreshToken;
         const refreshExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
 
@@ -850,12 +936,14 @@ router.post('/refresh', refreshLimiter, async (req, res) => {
           token: hashedRefreshToken,
           tokenDigest: newRefreshDigest,
           sessionVersion: currentSessionVersion,
+          uaHash: currentUaHash,
           expiresAt: refreshExpiresAt,
         });
       })();
     } catch (err) {
       const msgMap = {
         'TOKEN_INVALID': 'Invalid or expired refresh token.',
+        'TOKEN_DEPRECATED': 'Your session has expired for security reasons. Please log in again.',
         'USER_NOT_FOUND': 'User not found.',
         'SESSION_EXPIRED': 'Authentication session has expired. Please log in again.'
       };
@@ -1292,10 +1380,8 @@ router.post('/forgot-password', forgotPasswordLimiter, emailLimiter, async (req,
     // Always return success to prevent email enumeration
     const user = statements.findUserByEmail.get({ email: normalizedEmail });
 
-    let devToken = null;
     if (user && user.is_verified) {
       const resetToken = generateVerificationToken();
-      devToken = resetToken;
       const tokenDigest = crypto.createHash('sha256').update(resetToken).digest('hex');
       const hashedToken = await hashToken(resetToken);
       const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
@@ -1329,7 +1415,6 @@ router.post('/forgot-password', forgotPasswordLimiter, emailLimiter, async (req,
     res.json({
       success: true,
       message: 'If an account exists with this email, a password reset link has been sent.',
-      ...(config.nodeEnv === 'development' && devToken && { devToken }),
     });
   } catch (error) {
     console.error('Forgot password error:', error);

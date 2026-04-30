@@ -1,5 +1,7 @@
 const { Worker } = require('bullmq');
 const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
 const { db, statements } = require('../models/db');
 const config = require('../config');
 
@@ -15,21 +17,90 @@ let batch = [];
 let resolvers = [];
 let flushTimer = null;
 
+// ============================================
 // ECDSA Key for signing Critical Events
-// In production, load from KMS or Vault. Using a hardcoded demo key for portfolio purposes.
-const privateKeyObj = crypto.generateKeyPairSync('ec', { namedCurve: 'prime256v1' });
-const privateKey = privateKeyObj.privateKey.export({ type: 'sec1', format: 'pem' });
-const publicKeyPem = privateKeyObj.publicKey.export({ type: 'spki', format: 'pem' });
-const CURRENT_KEY_VERSION = 'v1';
+// ============================================
 
-// Save the Public Key for future verification (Phase 4 readiness)
+// Load keys from environment variables
+let privateKey = process.env.AUDIT_SIGNING_PRIVATE_KEY_PEM;
+let publicKeyPem = process.env.AUDIT_SIGNING_PUBLIC_KEY_PEM;
+
+// Production: Must have keys configured
+if (config.nodeEnv === 'production') {
+  if (!privateKey || !publicKeyPem) {
+    throw new Error(
+      'AUDIT_SIGNING_PRIVATE_KEY_PEM and AUDIT_SIGNING_PUBLIC_KEY_PEM must be set in production. ' +
+      'Run: node generate-audit-keys.js to generate keys.'
+    );
+  }
+}
+// Development: Generate ephemeral keys if not provided (with .gitignore safety check)
+else {
+  if (!privateKey) {
+    // SECURITY: Check .gitignore before generating ephemeral keys
+    const gitignorePath = path.join(__dirname, '../../.gitignore');
+    let gitignoreOk = false;
+
+    try {
+      if (fs.existsSync(gitignorePath)) {
+        const gitignore = fs.readFileSync(gitignorePath, 'utf8');
+        // Check for exact match or wildcard pattern
+        gitignoreOk = gitignore.includes('.audit-keys-temp.pem') ||
+                      gitignore.includes('*.pem.key') ||
+                      gitignore.includes('audit-keys-*.pem');
+      }
+    } catch (e) {
+      // If we can't read .gitignore, be conservative
+    }
+
+    if (!gitignoreOk) {
+      console.error('[AUDIT] ❌ SECURITY ERROR: .audit-keys-temp.pem is not in .gitignore');
+      console.error('[AUDIT] Add the following to your .gitignore file:');
+      console.error('[AUDIT]   .audit-keys-temp.pem');
+      console.error('[AUDIT]   *.pem.key');
+      console.error('[AUDIT] Or run: echo ".audit-keys-temp.pem" >> .gitignore');
+      throw new Error(
+        'Refusing to create ephemeral audit key file because it is not in .gitignore. ' +
+        'This prevents accidental commit of private keys to version control. ' +
+        'Add ".audit-keys-temp.pem" to .gitignore and restart.'
+      );
+    }
+
+    console.warn('[AUDIT] AUDIT_SIGNING_PRIVATE_KEY_PEM not set. Generating ephemeral keys for development.');
+    console.warn('[AUDIT] Signatures will NOT persist across restarts and will NOT be verifiable after restart.');
+
+    const keyObj = crypto.generateKeyPairSync('ec', {
+      namedCurve: 'prime256v1'
+    });
+
+    privateKey = keyObj.privateKey.export({ type: 'sec1', format: 'pem' });
+    publicKeyPem = keyObj.publicKey.export({ type: 'spki', format: 'pem' });
+
+    // Save to temp file for this session (with strict permissions)
+    const tempKeyPath = path.join(__dirname, '../../.audit-keys-temp.pem');
+    fs.writeFileSync(tempKeyPath, privateKey, { mode: 0o600 });
+    console.warn(`[AUDIT] Ephemeral private key saved to: ${tempKeyPath} (protected by .gitignore)`);
+    console.warn('[AUDIT] This file will be regenerated on each restart. DO NOT COMMIT IT.');
+  }
+}
+
+// Derive key version from public key fingerprint
+const keyFingerprint = crypto
+  .createHash('sha256')
+  .update(publicKeyPem)
+  .digest('hex')
+  .slice(0, 16);
+const CURRENT_KEY_VERSION = `ec-p256-${keyFingerprint}`;
+
+// Save the Public Key for future verification (INSERT OR REPLACE for key rotation)
 try {
   statements.insertSignatureKey.run({
     keyVersion: CURRENT_KEY_VERSION,
     publicKeyPem: publicKeyPem
   });
+  console.log(`[AUDIT] Using signing key version: ${CURRENT_KEY_VERSION}`);
 } catch (err) {
-  console.error('Failed to initialize signature_keys:', err.message);
+  console.error('[AUDIT] Failed to initialize signature_keys:', err.message);
 }
 
 // Rule-set for critical events that require Digital Signature

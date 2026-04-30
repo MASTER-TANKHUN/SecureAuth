@@ -194,6 +194,40 @@
 
 ---
 
+## 🛡️ Post-Audit Remediation VII (30-04-2026 - Security Hardening)
+
+### 🔴 HIGH Priority Fixes
+
+#### 1. UA Binding หายหลังจาก Refresh Token [VULN-2026-1]
+- **ไฟล์:** `server/models/db.js`, `server/routes/auth.js`
+- **ปัญหา:** Refresh Token ไม่ได้ผูกกับ User-Agent Hash ทำให้หาก Token ถูกขโมย ผู้โจมตีสามารถใช้งานได้จากอุปกรณ์อื่นโดยไม่ถูกตรวจจับ
+- **แก้ไข:** 
+  - เพิ่มคอลัมน์ `ua_hash` ในตาราง `refresh_tokens`
+  - ตรวจสอบ UA Hash เมื่อใช้ Refresh Token — หากไม่ตรงกันจะถูกเตะออกจากระบบ
+  - Revoke Legacy Tokens ที่ไม่มี UA Hash อัตโมัติ
+  - สร้าง Access Token ใหม่พร้อม UA Hash ทุกครั้งที่ Refresh
+
+#### 2. Account Lockout DoS Attack [VULN-2026-2]
+- **ไฟล์:** `server/routes/auth.js`, `server/models/db.js`
+- **ปัญหา:** ระบบล็อคบัญชีทั้งหมดเมื่อมีการล็อกอินผิด 5 ครั้ง ทำให้ผู้โจมตีสามารถล็อคบัญชีผู้อื่นได้โดยรู้อีเมลอย่างเดียว (Denial of Service)
+- **แก้ไข:**
+  - สร้างตาราง `login_throttle` ใหม่สำหรับติดตามการล็อกอินผิดตามแหล่งที่มา (email + IP)
+  - แทนที่ Account Lockout ด้วย Source-Based Throttling — ล็อคเฉพาะแหล่งที่มาที่ผิด ไม่ใช่ทั้งบัญชี
+  - Soft Reset: ล้างตัวนับแต่เก็บประวัติไว้สำหรับตรวจสอบภัยคุกคาม
+  - เพิ่มระบบ Cleanup 3-phase เพื่อลบข้อมูลเก่าอัตโนมัติ
+
+#### 3. Audit Log Signing Keys แบบ Ephemeral [VULN-2026-3]
+- **ไฟล์:** `server/workers/auditWorker.js`, `.gitignore`, `.env.example`
+- **ปัญหา:** ระบบสร้างคีย์ ECDSA ใหม่ทุกครั้งที่รีสตาร์ท ทำให้ลายเซ็นใน Audit Log ไม่สามารถตรวจสอบความถูกต้องได้หลังรีสตาร์ท (Key หาย)
+- **แก้ไข:**
+  - โหลดคีย์จาก Environment Variables (`AUDIT_SIGNING_PRIVATE_KEY_PEM`, `AUDIT_SIGNING_PUBLIC_KEY_PEM`)
+  - ใน Production: หากไม่มีคีย์ระบบจะไม่สตาร์ท (Fail-safe)
+  - ใน Development: สร้างคีย์ชั่วคราวพร้อมตรวจสอบ `.gitignore` — หากไม่มี pattern ที่ถูกต้องจะ throw Error
+  - สร้างสคริปต์ `generate-audit-keys.js` สำหรับสร้างคีย์คู่
+  - Key Version อ้างอิงจาก Fingerprint ของ Public Key (ไม่ใช่ 'v1' คงที่)
+
+---
+
 ## 🛡️ Enterprise Security Enhancement V
 
 ### 🚀 ฟีเจอร์ใหม่ระดับ Enterprise

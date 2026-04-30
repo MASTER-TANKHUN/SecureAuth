@@ -212,9 +212,46 @@ This patch addresses **8 security findings** identified during an independent co
 - **Finding:** The `config.appUrl` was injected into HTML email templates without escaping. While the URL is admin-controlled, it lacked consistent protection against accidental HTML injection or malicious environment configuration.
 - **Fix:** Applied `escapeHtml()` to all URLs injected into HTML email bodies.
 
-🛡️ Enterprise Security Enhancement V
-🚀 Enterprise-Grade New Features
-1. Tamper-evident Audit Trail & Digital Signature (Phase 2)
+---
+
+## 🛡️ Post-Audit Remediation VII (April 30, 2026 - Security Hardening)
+
+### 🔴 HIGH Priority Fixes
+
+#### 1. UA Binding Lost After Token Refresh [VULN-2026-1]
+- **Files:** `server/models/db.js`, `server/routes/auth.js`
+- **Finding:** Refresh tokens were not bound to User-Agent hash, allowing stolen tokens to be used from any device without detection.
+- **Fix:**
+  - Added `ua_hash` column to `refresh_tokens` table
+  - Validate UA hash on token refresh — mismatch triggers revocation
+  - Auto-revoke legacy tokens without UA hash
+  - Generate new access tokens with UA hash binding
+
+#### 2. Account Lockout DoS Vulnerability [VULN-2026-2]
+- **Files:** `server/routes/auth.js`, `server/models/db.js`
+- **Finding:** Account-wide lockout after 5 failed attempts allowed attackers to lock any account knowing only the email address (Denial of Service).
+- **Fix:**
+  - Created new `login_throttle` table for per-source tracking (email + IP)
+  - Replaced account lockout with source-based throttling — locks only the attacker source, not the entire account
+  - Soft reset: clears counter but preserves audit history for threat analysis
+  - Added 3-phase cleanup strategy for stale throttle records
+
+#### 3. Ephemeral Audit Log Signing Keys [VULN-2026-3]
+- **Files:** `server/workers/auditWorker.js`, `.gitignore`, `.env.example`, `generate-audit-keys.js`
+- **Finding:** ECDSA keys were regenerated on every restart, making audit log signatures unverifiable after restart (keys lost).
+- **Fix:**
+  - Load keys from environment variables (`AUDIT_SIGNING_PRIVATE_KEY_PEM`, `AUDIT_SIGNING_PUBLIC_KEY_PEM`)
+  - Production: Application refuses to start if keys missing (fail-safe)
+  - Development: Generates ephemeral keys with `.gitignore` check — throws error if patterns missing
+  - Created `generate-audit-keys.js` script for key pair generation
+  - Key version derived from public key fingerprint (not static 'v1')
+
+---
+
+## 🛡️ Enterprise Security Enhancement V
+
+### 🚀 Enterprise-Grade New Features
+#### 1. Tamper-evident Audit Trail & Digital Signature (Phase 2)
 Files: server/models/db.js, server/workers/auditWorker.js, server/utils/auditQueue.js
 Description: Upgraded the Audit Log system to a Hash Chaining model (similar to blockchain linking) to prevent retrospective log tampering.
 Micro-batching: Utilizes Redis and BullMQ for micro-batching, allowing high-volume logs to be grouped into a single transaction, reducing database lock contention.
@@ -225,3 +262,24 @@ Description: Implements geolocation velocity checks using the Haversine formula.
 3. Fraud Detection: User-Agent Binding (Phase 1)
 File: server/middleware/auth.js
 Description: Hashes the User-Agent and embeds it into the JWT to mitigate token hijacking. If a mismatch is detected during a session, the system raises an alert and sets the flag req.uaMismatch for monitoring.
+
+### Security Fixes Applied VI
+
+The following vulnerabilities have been fixed:
+
+| Fix | File | Description |
+|-----|------|-------------|
+| **devToken Removal** | `server/routes/auth.js` | Removed `devToken` from `/register` and `/forgot-password` responses to prevent verification token leaks |
+| **APP_URL Enforcement** | `server/config.js` | `APP_URL` is now required in production; app will crash with clear error message if not set |
+| **Impossible Travel Fix** | `server/models/db.js` | `getLastLoginEvent` now filters `is_trusted=1 AND status='success'` to prevent baseline poisoning attacks |
+
+#### Verification Notes
+
+✅ **`requireInProduction` Error Handling**: The function correctly throws `Error` in production when required variables are missing, causing the application to stop immediately. This is the intended behavior for misconfigured production environments.
+
+✅ **`getLastLoginEvent` Usage**: Verified that `getLastLoginEvent` is only used in the Impossible Travel detection logic in `auth.js`. The SQL filter change does not affect other features.
+
+✅ **Regression Test Coverage**: 
+- Test Case 1: Legitimate impossible travel detection still works
+- Test Case 2: Baseline is not poisoned by blocked/failed login attempts
+- Test Case 3: Real users can still log in after attacker spray attempts

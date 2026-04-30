@@ -148,6 +148,20 @@ function resetLockout(email) {
   db.close();
 }
 
+function getPasswordResetToken(email) {
+  const db = new Database(DB_PATH, { readonly: true });
+  try {
+    const user = db.prepare('SELECT id FROM users WHERE email = ?').get(email);
+    if (!user) return null;
+    const tokenRow = db.prepare(
+      "SELECT token FROM verification_tokens WHERE user_id = ? AND type = 'password_reset' AND used = 0 ORDER BY created_at DESC LIMIT 1"
+    ).get(user.id);
+    return tokenRow ? tokenRow.token : null;
+  } finally {
+    db.close();
+  }
+}
+
 // Helper: register + verify + login a fresh user, return authenticated session
 async function createVerifiedUser(email, username, password) {
   const s = new Session();
@@ -155,15 +169,10 @@ async function createVerifiedUser(email, username, password) {
   const reg = await s.request('/api/auth/register', {
     method: 'POST', body: { email, username, password },
   });
-  if (reg.data.devToken) {
-    await s.request('/api/auth/verify-email', {
-      method: 'POST', body: { token: reg.data.devToken },
-    });
-  } else {
-    const db = new Database(DB_PATH);
-    db.prepare('UPDATE users SET is_verified = 1 WHERE email = ?').run(email);
-    db.close();
-  }
+  // Verify user by directly updating database (devToken removed for security)
+  const db = new Database(DB_PATH);
+  db.prepare('UPDATE users SET is_verified = 1 WHERE email = ?').run(email);
+  db.close();
   // Fresh login session
   const login = new Session();
   await login.ensureCsrfToken();
@@ -218,21 +227,21 @@ async function run() {
         method: 'POST', body: { email: 'alice@example.com', username: 'alice', password },
       });
       assert.equal(r.status, 201);
-      assert.ok(r.data.devToken);
+      assert.ok(!r.data.devToken, 'devToken should not be exposed in response');
     });
 
-    await check('Duplicate email — no devToken', async () => {
+    await check('Duplicate email rejected', async () => {
       const r = await regSession.request('/api/auth/register', {
         method: 'POST', body: { email: 'alice@example.com', username: 'alice2', password },
       });
-      assert.ok(!r.data.devToken, 'Duplicate should not get devToken');
+      assert.equal(r.status, 409);
     });
 
-    await check('Duplicate username — no devToken', async () => {
+    await check('Duplicate username rejected', async () => {
       const r = await regSession.request('/api/auth/register', {
         method: 'POST', body: { email: 'other@example.com', username: 'alice', password },
       });
-      assert.ok(!r.data.devToken, 'Duplicate should not get devToken');
+      assert.equal(r.status, 409);
     });
 
     await check('Weak password rejected', async () => {
@@ -669,29 +678,37 @@ async function run() {
       method: 'POST', body: { email: resetEmail },
     });
 
+    // Get tokens from database after requests
+    const firstToken = getPasswordResetToken(resetEmail);
+    
     await check('Second forgot-password rotates token', async () => {
-      assert.ok(forgot1.data.devToken);
-      assert.ok(forgot2.data.devToken);
-      assert.notEqual(forgot1.data.devToken, forgot2.data.devToken);
+      // After second request, the first token should be marked as used/rotated
+      // and a new token should exist
+      const currentToken = getPasswordResetToken(resetEmail);
+      assert.ok(firstToken, 'First token should exist');
+      assert.ok(currentToken, 'Current token should exist');
+      assert.notEqual(firstToken, currentToken, 'Token should be rotated');
     });
 
     await check('Stale reset token rejected', async () => {
       const r = await forgotSession.request('/api/auth/reset-password', {
-        method: 'POST', body: { token: forgot1.data.devToken, password: resetNewPass },
+        method: 'POST', body: { token: firstToken, password: resetNewPass },
       });
       assert.equal(r.status, 400);
     });
 
+    const validToken = getPasswordResetToken(resetEmail);
+    
     await check('Valid reset token works', async () => {
       const r = await forgotSession.request('/api/auth/reset-password', {
-        method: 'POST', body: { token: forgot2.data.devToken, password: resetNewPass },
+        method: 'POST', body: { token: validToken, password: resetNewPass },
       });
       assert.equal(r.status, 200);
     });
 
     await check('Used reset token cannot replay', async () => {
       const r = await forgotSession.request('/api/auth/reset-password', {
-        method: 'POST', body: { token: forgot2.data.devToken, password: 'AnotherPass3!' },
+        method: 'POST', body: { token: validToken, password: 'AnotherPass3!' },
       });
       assert.equal(r.status, 400);
     });

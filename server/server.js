@@ -271,7 +271,51 @@ function startTokenCleanup() {
   }, cleanupInterval);
 }
 
+// ============================================
+// Login Throttle Cleanup Job (3-phase strategy)
+// ============================================
+function startThrottleCleanup() {
+  // Phase 1: Stale records (every hour)
+  const staleInterval = setInterval(() => {
+    try {
+      const result = statements.cleanupStaleThrottles.run();
+      if (result.changes > 0) {
+        console.log(`✅ Throttle cleanup: ${result.changes} stale records removed`);
+      }
+    } catch (err) {
+      console.error('❌ Throttle cleanup error:', err.message);
+    }
+  }, 60 * 60 * 1000); // 1 hour
+
+  // Phase 2: Ancient records (every day)
+  const ancientInterval = setInterval(() => {
+    try {
+      const result = statements.purgeAncientThrottles.run();
+      if (result.changes > 0) {
+        console.log(`✅ Throttle purge: ${result.changes} ancient records removed (>30 days)`);
+      }
+    } catch (err) {
+      console.error('❌ Throttle purge error:', err.message);
+    }
+  }, 24 * 60 * 60 * 1000); // 24 hours
+
+  // Phase 3: High-failure records (every week)
+  const failedInterval = setInterval(() => {
+    try {
+      const result = statements.purgeFailedThrottles.run();
+      if (result.changes > 0) {
+        console.log(`✅ Throttle purge: ${result.changes} high-failure records removed`);
+      }
+    } catch (err) {
+      console.error('❌ Throttle purge error:', err.message);
+    }
+  }, 7 * 24 * 60 * 60 * 1000); // 7 days
+
+  return { staleInterval, ancientInterval, failedInterval };
+}
+
 let cleanupHandle = null;
+let throttleCleanupHandle = null;
 
 if (require.main === module) {
   // Start the background worker for Audit Logs
@@ -279,6 +323,7 @@ if (require.main === module) {
   console.log('✅ Audit Worker initialized (BullMQ)');
 
   cleanupHandle = startTokenCleanup();
+  throttleCleanupHandle = startThrottleCleanup();
   startServer();
 }
 

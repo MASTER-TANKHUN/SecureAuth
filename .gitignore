@@ -20,6 +20,11 @@ security.log
 .DS_Store
 Thumbs.db
 
+# Audit log ephemeral keys (auto-generated in dev - SECURITY: must not be committed)
+.audit-keys-temp.pem
+*.pem.key
+audit-keys-*.pem
+
 # IDE Files
 .vscode/
 .idea/

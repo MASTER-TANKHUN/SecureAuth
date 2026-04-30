@@ -85,6 +85,16 @@ Developed by MasterT.
    npm run dev
    ```
 
+### 📧 Email Testing in Development
+
+The system uses **Ethereal Email** (a fake SMTP service) for development. When the app sends emails (verification, password reset, etc.), the email content including **clickable links** will appear directly in the **terminal console** instead of being sent to a real inbox.
+
+> 💡 **Tip**: Look for the preview URL in the terminal when testing features like:
+> - Email verification after registration
+> - Password reset flow
+> - MFA disable confirmation
+> - Email change verification
+
 ## Testing (Quality Assurance)
 
 Automated tests are included to ensure all security features work as expected.
@@ -111,6 +121,29 @@ This suite performs 40+ deep security checks including rate limit behavior, conc
 - MFA setup, TOTP verification, and replay protection.
 - MFA disable using backup codes.
 
+### ⚠️ Known Test Issues
+
+> **Note**: These tests may fail due to environment-specific issues unrelated to the actual security fixes.
+
+#### 1. Redis Version Compatibility
+Both `test:smoke` and `test:glm` require **Redis 5.0.0+** for BullMQ queue functionality. If you see:
+```
+Error: Redis version needs to be greater or equal than 5.0.0
+```
+The tests will fail even though the security fixes are correctly implemented. **Solution**: Upgrade Redis to version 5.0.0 or later.
+
+#### 2. devToken Removal (Security Fix Applied)
+**Change**: `devToken` has been removed from API responses to prevent token leaks on production.
+
+**Impact on Tests**: Tests that previously relied on `devToken` from response bodies have been updated to fetch tokens directly from the database for testing purposes.
+
+#### 3. GLM Test - Account Lockout Interference
+In some test runs, the account lockout test may cause subsequent login attempts to fail with 401 errors because:
+- The account lockout persists across test runs (stored in database)
+- Previous test users may still be locked when running new tests
+
+**Solution**: Clear the database (`rm auth.db`) before running tests, or wait for the lockout period (30 minutes) to expire.
+
 ## Project Structure
 ```text
 public/                  Frontend assets (HTML, CSS, JS)
@@ -125,7 +158,7 @@ tests/                   Automated smoke tests
 ## ⚠️ Security Notes
 
 - Set `NODE_ENV=production` before deploying
-- Dev tokens (devToken) are only shown in development mode
+- **devToken removed**: Development tokens are no longer exposed in API responses for security
 - Make sure to set all required secrets in production
 ---
 
@@ -216,6 +249,16 @@ tests/                   Automated smoke tests
    ```bash
    npm run dev
    ```
+
+### 📧 การทดสอบอีเมลในขณะพัฒนา
+
+ระบบใช้ **Ethereal Email** (บริการ SMTP จำลอง) สำหรับการพัฒนา เมื่อแอปส่งอีเมล (ยืนยันอีเมล, รีเซ็ตรหัสผ่าน ฯลฯ) เนื้อหาอีเมลรวมถึง **ลิงก์ที่คลิกได้** จะแสดงโดยตรงใน **หน้าจอเทอร์มินอล (Terminal)** แทนที่จะส่งไปยังกล่องจดหมายจริง
+
+> 💡 **เคล็ดลับ**: ดูหา URL สำหรับพรีวิวในเทอร์มินอลเมื่อทดสอบฟีเจอร์ต่างๆ เช่น:
+> - การยืนยันอีเมลหลังสมัครสมาชิก
+> - ขั้นตอนรีเซ็ตรหัสผ่าน
+> - การยืนยันปิด MFA
+> - การยืนยันเปลี่ยนอีเมล
 
 ## การทดสอบระบบ (Automated Testing)
 

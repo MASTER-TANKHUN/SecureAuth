@@ -159,6 +159,20 @@ function generateCurrentTotp(email) {
   return authenticator.generate(secret);
 }
 
+function getPasswordResetToken(email) {
+  const db = new Database(DB_PATH, { readonly: true });
+  try {
+    const user = db.prepare('SELECT id FROM users WHERE email = ?').get(email);
+    if (!user) return null;
+    const tokenRow = db.prepare(
+      "SELECT token FROM verification_tokens WHERE user_id = ? AND type = 'password_reset' AND used = 0 ORDER BY created_at DESC LIMIT 1"
+    ).get(user.id);
+    return tokenRow ? tokenRow.token : null;
+  } finally {
+    db.close();
+  }
+}
+
 function getCount(sql, params = []) {
   const db = new Database(DB_PATH, { readonly: true });
   try {
@@ -207,13 +221,12 @@ async function run() {
       console.error('❌ Register failed:', registerResult.status, registerResult.data);
     }
     assert.equal(registerResult.status, 201, 'Register should succeed');
-    assert.ok(registerResult.data.devToken, 'Register should expose a dev verification token');
+    assert.ok(!registerResult.data.devToken, 'Register should NOT expose devToken in production');
 
-    const verifyResult = await registerSession.request('/api/auth/verify-email', {
-      method: 'POST',
-      body: { token: registerResult.data.devToken },
-    });
-    assert.equal(verifyResult.status, 200, 'Verify email should succeed');
+    // Directly verify user in database for testing (devToken removed for security)
+    const dbVerify = new Database(DB_PATH);
+    dbVerify.prepare('UPDATE users SET is_verified = 1 WHERE email = ?').run(email);
+    dbVerify.close();
 
     const loginSession = new Session();
     await loginSession.ensureCsrfToken();
@@ -247,32 +260,34 @@ async function run() {
       body: { email },
     });
     assert.equal(forgotFirst.status, 200, 'First forgot-password request should succeed');
-    assert.ok(forgotFirst.data.devToken, 'Expected first forgot-password dev token');
+    const firstToken = getPasswordResetToken(email);
+    assert.ok(firstToken, 'Expected first forgot-password token in database');
 
     const forgotSecond = await forgotSession.request('/api/auth/forgot-password', {
       method: 'POST',
       body: { email },
     });
     assert.equal(forgotSecond.status, 200, 'Second forgot-password request should succeed');
-    assert.ok(forgotSecond.data.devToken, 'Expected second forgot-password dev token');
-    assert.notEqual(forgotFirst.data.devToken, forgotSecond.data.devToken, 'Expected token rotation for forgot-password');
+    const secondToken = getPasswordResetToken(email);
+    assert.ok(secondToken, 'Expected second forgot-password token in database');
+    assert.notEqual(firstToken, secondToken, 'Expected token rotation for forgot-password');
 
     const staleReset = await forgotSession.request('/api/auth/reset-password', {
       method: 'POST',
-      body: { token: forgotFirst.data.devToken, password: updatedPassword },
+      body: { token: firstToken, password: updatedPassword },
     });
     assert.equal(staleReset.status, 400, 'Older password reset token should be invalidated');
 
     const priorRefreshDigest = getLatestRefreshTokenDigest(loginSession);
     const resetResult = await forgotSession.request('/api/auth/reset-password', {
       method: 'POST',
-      body: { token: forgotSecond.data.devToken, password: updatedPassword },
+      body: { token: secondToken, password: updatedPassword },
     });
     assert.equal(resetResult.status, 200, 'Latest password reset token should succeed');
 
     const replayReset = await forgotSession.request('/api/auth/reset-password', {
       method: 'POST',
-      body: { token: forgotSecond.data.devToken, password: 'AnotherPass3!' },
+      body: { token: secondToken, password: 'AnotherPass3!' },
     });
     assert.equal(replayReset.status, 400, 'Used password reset token must not replay');
 

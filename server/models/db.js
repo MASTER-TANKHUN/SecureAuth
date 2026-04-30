@@ -58,10 +58,24 @@ db.exec(`
     token TEXT UNIQUE NOT NULL,
     token_digest TEXT NOT NULL,
     session_version INTEGER DEFAULT 0,
+    ua_hash TEXT,
     expires_at DATETIME NOT NULL,
     revoked INTEGER DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS login_throttle (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    email TEXT NOT NULL,
+    ip_address TEXT NOT NULL,
+    failed_count INTEGER DEFAULT 0,
+    total_failures INTEGER DEFAULT 0,
+    locked_until DATETIME,
+    last_success DATETIME,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(email, ip_address)
   );
 
   CREATE TABLE IF NOT EXISTS login_events (
@@ -162,6 +176,11 @@ try {
 }
 try {
   db.exec('ALTER TABLE refresh_tokens ADD COLUMN session_version INTEGER DEFAULT 0');
+} catch (e) {
+  // Column already exists
+}
+try {
+  db.exec('ALTER TABLE refresh_tokens ADD COLUMN ua_hash TEXT');
 } catch (e) {
   // Column already exists
 }
@@ -271,8 +290,8 @@ const statements = {
 
   // Refresh token operations
   createRefreshToken: db.prepare(`
-    INSERT INTO refresh_tokens (user_id, token, token_digest, session_version, expires_at)
-    VALUES (@userId, @token, @tokenDigest, @sessionVersion, @expiresAt)
+    INSERT INTO refresh_tokens (user_id, token, token_digest, session_version, ua_hash, expires_at)
+    VALUES (@userId, @token, @tokenDigest, @sessionVersion, @uaHash, @expiresAt)
   `),
 
   findRefreshToken: db.prepare(`
@@ -328,7 +347,12 @@ const statements = {
   `),
 
   getLastLoginEvent: db.prepare(`
-    SELECT * FROM login_events WHERE user_id = @userId ORDER BY event_time DESC LIMIT 1
+    SELECT * FROM login_events 
+    WHERE user_id = @userId 
+      AND is_trusted = 1 
+      AND status = 'success'
+    ORDER BY event_time DESC 
+    LIMIT 1
   `),
 
   getLogChainState: db.prepare(`SELECT last_hash FROM log_chain_state WHERE id = 1`),
@@ -341,7 +365,60 @@ const statements = {
   `),
 
   insertSignatureKey: db.prepare(`
-    INSERT OR IGNORE INTO signature_keys (key_version, public_key_pem) VALUES (@keyVersion, @publicKeyPem)
+    INSERT OR REPLACE INTO signature_keys (key_version, public_key_pem) VALUES (@keyVersion, @publicKeyPem)
+  `),
+
+  // Login throttle operations (source-based, not account-based)
+  findSourceThrottle: db.prepare(`
+    SELECT * FROM login_throttle 
+    WHERE email = @email AND ip_address = @ipAddress
+  `),
+
+  incrementSourceThrottle: db.prepare(`
+    INSERT INTO login_throttle (email, ip_address, failed_count, total_failures, updated_at)
+    VALUES (@email, @ipAddress, 1, 1, CURRENT_TIMESTAMP)
+    ON CONFLICT(email, ip_address) DO UPDATE SET
+      failed_count = failed_count + 1,
+      total_failures = total_failures + 1,
+      updated_at = CURRENT_TIMESTAMP
+  `),
+
+  lockSourceThrottle: db.prepare(`
+    UPDATE login_throttle 
+    SET locked_until = @lockedUntil, 
+        failed_count = 0,
+        updated_at = CURRENT_TIMESTAMP
+    WHERE email = @email AND ip_address = @ipAddress
+  `),
+
+  softResetThrottle: db.prepare(`
+    UPDATE login_throttle 
+    SET failed_count = 0, 
+        last_success = @lastSuccess,
+        updated_at = CURRENT_TIMESTAMP
+    WHERE email = @email AND ip_address = @ipAddress
+  `),
+
+  resetThrottleAfterSuccess: db.prepare(`
+    DELETE FROM login_throttle 
+    WHERE email = @email AND ip_address = @ipAddress
+  `),
+
+  cleanupStaleThrottles: db.prepare(`
+    DELETE FROM login_throttle 
+    WHERE updated_at < datetime('now', '-24 hours')
+      AND (last_success IS NULL OR last_success < datetime('now', '-24 hours'))
+  `),
+
+  purgeAncientThrottles: db.prepare(`
+    DELETE FROM login_throttle 
+    WHERE created_at < datetime('now', '-30 days')
+  `),
+
+  purgeFailedThrottles: db.prepare(`
+    DELETE FROM login_throttle 
+    WHERE total_failures > 100 
+      AND updated_at < datetime('now', '-7 days')
   `),
 
   // Password history operations
